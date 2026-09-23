@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Repost Dashboard</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#e7e9ee; --muted:#9aa2b1; --accent:#6c8cff; --good:#3ecf8e; --bad:#ff6b6b; --warn:#ffb454;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:20px 28px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+  header h1{font-size:18px;margin:0}
+  main{max-width:1100px;margin:0 auto;padding:28px}
+  section{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:20px}
+  section h2{margin:0 0 14px;font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  h2.collapsible-header{cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none}
+  h2.collapsible-header:hover{color:var(--text)}
+  h2.collapsible-header .chevron{display:inline-block;font-size:11px;transition:transform .15s ease;color:var(--muted)}
+  h2.collapsible-header .muted{text-transform:none;letter-spacing:normal;font-size:12px;font-weight:400;margin-left:auto}
+  #mediaSectionBody.collapsed{display:none}
+  .scheduler{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:14px;margin:14px 0}
+  .sched-label{font-size:12px;color:var(--muted);white-space:nowrap}
+  .sched-field{display:inline-flex;align-items:center;gap:6px}
+  .sched-days{display:inline-flex;gap:4px;flex-wrap:wrap}
+  .day-chip{display:inline-flex;align-items:center;gap:4px;background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:4px 10px;font-size:12px;cursor:pointer;user-select:none}
+  .day-chip:has(input:checked){background:var(--accent);border-color:var(--accent);color:#fff}
+  .day-chip input{margin:0;cursor:pointer}
+  input[type=time]{background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:6px 10px;border-radius:6px;font-size:13px}
+  .connections{display:flex;gap:12px;flex-wrap:wrap}
+  .conn{flex:1;min-width:200px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:14px}
+  .conn .name{font-weight:600;margin-bottom:6px}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+  .dot.on{background:var(--good)} .dot.off{background:var(--bad)}
+  a.btn, button{background:var(--accent);color:#fff;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;text-decoration:none;display:inline-block}
+  button.secondary{background:var(--panel2);border:1px solid var(--border);color:var(--text)}
+  button.danger{background:var(--bad)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--border)}
+  th{color:var(--muted);font-weight:500}
+  .thumb{width:48px;height:48px;object-fit:cover;border-radius:6px;background:#000}
+  .caption-cell{max-width:320px;color:var(--muted)}
+  .badge{padding:2px 8px;border-radius:10px;font-size:11px}
+  .badge.success{background:rgba(62,207,142,.15);color:var(--good)}
+  .badge.failed{background:rgba(255,107,107,.15);color:var(--bad)}
+  .badge.draft{background:rgba(255,180,84,.15);color:var(--warn)}
+  .badge.pending{background:rgba(154,162,177,.15);color:var(--muted)}
+  .badge.skipped_duplicate{background:rgba(108,140,255,.15);color:var(--accent)}
+  .row-actions{display:flex;gap:6px}
+  .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  input[type=text], input[type=number], select{background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;font-size:13px}
+  .wf-card{border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px;background:var(--panel2)}
+  .wf-card .title{font-weight:600;display:flex;justify-content:space-between;align-items:center}
+  .muted{color:var(--muted)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .pill{font-size:11px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:2px 8px;color:var(--muted)}
+  #toast{position:fixed;bottom:20px;right:20px;background:var(--panel2);border:1px solid var(--border);padding:10px 16px;border-radius:8px;display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>📼 Historical Repost Dashboard</h1>
+  <div class="muted">Instagram Reels/Posts → YouTube Shorts &amp; TikTok</div>
+</header>
+
+<main>
+  <section>
+    <h2>Connections</h2>
+    <div class="connections" id="connections"></div>
+  </section>
+
+  <section>
+    <h2 class="collapsible-header" id="mediaSectionHeader">
+      <span class="chevron" id="mediaChevron">▾</span>
+      Instagram Historical Media
+      <span class="muted" id="mediaCountInline"></span>
+    </h2>
+    <div id="mediaSectionBody">
+      <div class="toolbar">
+        <input type="number" id="fetchLimit" value="50" min="1" max="200" style="width:80px" title="Max posts to fetch (ignored once From/To dates below narrow the range and Instagram runs out of matching pages)" />
+        <span class="sched-field">
+          <label class="sched-label">Fetch from</label>
+          <input type="date" id="fetchSince" title="Only fetch posts published on/after this date" />
+        </span>
+        <span class="sched-field">
+          <label class="sched-label">to</label>
+          <input type="date" id="fetchUntil" title="Only fetch posts published on/before this date" />
+        </span>
+        <button id="fetchBtn">Fetch from Instagram</button>
+        <select id="mediaSort" title="Display order (also affects the order rows are checked top-to-bottom for Run selected)">
+          <option value="newest_first">Sort: Newest first</option>
+          <option value="oldest_first">Sort: Oldest first</option>
+        </select>
+        <select id="mediaTypeFilter" title="Filter by media type">
+          <option value="all">Type: All</option>
+          <option value="VIDEO">Type: Video</option>
+          <option value="REELS">Type: Reels</option>
+          <option value="IMAGE">Type: Image</option>
+          <option value="CAROUSEL_ALBUM">Type: Carousel</option>
+        </select>
+        <span class="sched-field">
+          <label class="sched-label">From</label>
+          <input type="date" id="mediaDateFrom" />
+        </span>
+        <span class="sched-field">
+          <label class="sched-label">To</label>
+          <input type="date" id="mediaDateTo" />
+        </span>
+        <button id="mediaDateClearBtn" class="secondary">Clear dates</button>
+        <span class="muted" id="mediaCount"></span>
+      </div>
+      <table>
+        <thead><tr><th></th><th>Type</th><th>Caption</th><th>Tags</th><th>Posted</th><th>Status</th><th></th></tr></thead>
+        <tbody id="mediaBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Workflows</h2>
+    <div class="toolbar">
+      <select id="newTarget">
+        <option value="youtube">→ YouTube Shorts</option>
+        <option value="tiktok">→ TikTok</option>
+      </select>
+      <input type="text" id="newName" placeholder="Workflow name (e.g. IG to YouTube)" style="width:240px" />
+      <input type="number" id="newPostsPerRun" placeholder="Posts per run" value="1" style="width:110px" />
+      <select id="newPostOrder" title="Order to pick un-posted items in, when a workflow runs without specific rows selected">
+        <option value="newest_first">Newest first</option>
+        <option value="oldest_first">Oldest first</option>
+      </select>
+    </div>
+
+    <div class="scheduler">
+      <div class="toolbar" style="margin-bottom:0">
+        <label class="sched-label">Schedule</label>
+        <select id="schedFrequency">
+          <option value="manual">Manual only</option>
+          <option value="hourly">Every hour</option>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="custom">Custom (cron expression)</option>
+        </select>
+
+        <span id="schedTimeWrap" class="sched-field" hidden>
+          <label class="sched-label">at</label>
+          <input type="time" id="schedTime" value="09:00" style="width:110px" />
+        </span>
+
+        <span id="schedDaysWrap" class="sched-days" hidden>
+          <label class="day-chip"><input type="checkbox" value="1" class="schedDay" /> Mon</label>
+          <label class="day-chip"><input type="checkbox" value="2" class="schedDay" /> Tue</label>
+          <label class="day-chip"><input type="checkbox" value="3" class="schedDay" /> Wed</label>
+          <label class="day-chip"><input type="checkbox" value="4" class="schedDay" /> Thu</label>
+          <label class="day-chip"><input type="checkbox" value="5" class="schedDay" /> Fri</label>
+          <label class="day-chip"><input type="checkbox" value="6" class="schedDay" /> Sat</label>
+          <label class="day-chip"><input type="checkbox" value="0" class="schedDay" /> Sun</label>
+        </span>
+
+        <span id="schedCustomWrap" class="sched-field" hidden>
+          <input type="text" id="schedCustomCron" placeholder="e.g. 0 9 * * *" style="width:180px" />
+        </span>
+      </div>
+      <div class="muted" id="schedPreview" style="font-size:12px;margin-top:8px"></div>
+    </div>
+
+    <div class="toolbar">
+      <button id="createWfBtn">Create workflow</button>
+    </div>
+    <div id="workflowsList"></div>
+  </section>
+
+  <section>
+    <h2>Activity Log</h2>
+    <table>
+      <thead><tr><th>When</th><th>IG Media</th><th>Target</th><th>Status</th><th>Result</th></tr></thead>
+      <tbody id="logBody"></tbody>
+    </table>
+  </section>
+</main>
+
+<div id="toast"></div>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+const selectedMedia = new Set();
+
+function toast(msg, isError) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.borderColor = isError ? 'var(--bad)' : 'var(--border)';
+  setTimeout(() => el.style.display = 'none', 4000);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error ? JSON.stringify(data.error) : 'Request failed');
+  return data;
+}
+
+async function loadConnections() {
+  const status = await api('/auth/status');
+  const platforms = [
+    { key: 'instagram', label: 'Instagram', connectUrl: '/auth/instagram' },
+    { key: 'youtube', label: 'YouTube', connectUrl: '/auth/youtube' },
+    { key: 'tiktok', label: 'TikTok', connectUrl: '/auth/tiktok' }
+  ];
+  $('#connections').innerHTML = platforms.map(p => `
+    <div class="conn">
+      <div class="name"><span class="dot ${status[p.key] ? 'on' : 'off'}"></span>${p.label}</div>
+      <div class="muted" style="margin-bottom:8px">${status[p.key] ? 'Connected' : 'Not connected'}</div>
+      <div class="row-actions">
+        <a class="btn" href="${p.connectUrl}">${status[p.key] ? 'Reconnect' : 'Connect'}</a>
+        ${status[p.key] ? `<button class="secondary" data-disconnect="${p.key}">Disconnect</button>` : ''}
+      </div>
+      ${p.key === 'tiktok' ? `
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+          <div class="muted" style="font-size:12px;margin-bottom:6px">TikTok redirects to a Vercel page (not this app) with a code. Paste it here:</div>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="tiktokCode" placeholder="Authorization code" style="flex:1;min-width:0" />
+            <button id="tiktokCompleteBtn" class="secondary">Complete</button>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `).join('');
+
+  const completeBtn = document.getElementById('tiktokCompleteBtn');
+  if (completeBtn) {
+    completeBtn.addEventListener('click', async () => {
+      const code = document.getElementById('tiktokCode').value.trim();
+      if (!code) { toast('Paste the code from the TikTok relay page first', true); return; }
+      completeBtn.disabled = true;
+      completeBtn.textContent = 'Connecting...';
+      try {
+        await api('/auth/tiktok/complete', { method: 'POST', body: JSON.stringify({ code }) });
+        toast('TikTok connected');
+        await loadConnections();
+      } catch (err) {
+        toast('TikTok connection failed: ' + err.message, true);
+      } finally {
+        completeBtn.disabled = false;
+        completeBtn.textContent = 'Complete';
+      }
+    });
+  }
+
+  document.querySelectorAll('[data-disconnect]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const provider = btn.dataset.disconnect;
+      const label = platforms.find(p => p.key === provider)?.label || provider;
+      if (!confirm(`Disconnect ${label}? You'll need to reconnect (click "Connect") to use it again.`)) return;
+      btn.disabled = true;
+      try {
+        await api(`/auth/${provider}/disconnect`, { method: 'POST', body: JSON.stringify({}) });
+        toast(`${label} disconnected`);
+        await loadConnections();
+      } catch (err) {
+        toast('Disconnect failed: ' + err.message, true);
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+function statusOf(mediaId, target, log) {
+  const entry = log.find(l => l.ig_media_id === mediaId && l.target === target);
+  return entry ? entry.status : null;
+}
+
+let mediaCache = [];
+let logCache = [];
+
+async function loadMedia() {
+  mediaCache = await api('/api/media');
+  $('#mediaCountInline').textContent = `(${mediaCache.length})`;
+  renderMedia();
+}
+
+function filteredMedia() {
+  const typeFilter = document.getElementById('mediaTypeFilter')?.value || 'all';
+  const fromVal = document.getElementById('mediaDateFrom')?.value || '';
+  const toVal = document.getElementById('mediaDateTo')?.value || '';
+  const fromTs = fromVal ? new Date(fromVal + 'T00:00:00').getTime() : null;
+  // Inclusive end of day for the "To" date.
+  const toTs = toVal ? new Date(toVal + 'T23:59:59.999').getTime() : null;
+
+  return mediaCache.filter(m => {
+    if (typeFilter !== 'all' && m.media_type !== typeFilter) return false;
+    if (fromTs || toTs) {
+      const t = m.timestamp ? new Date(m.timestamp).getTime() : null;
+      if (t === null) return false;
+      if (fromTs && t < fromTs) return false;
+      if (toTs && t > toTs) return false;
+    }
+    return true;
+  });
+}
+
+function sortedMedia() {
+  const order = document.getElementById('mediaSort')?.value || 'newest_first';
+  const sorted = [...filteredMedia()].sort((a, b) => {
+    const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return order === 'oldest_first' ? ta - tb : tb - ta;
+  });
+  return sorted;
+}
+
+const TYPE_LABELS = { VIDEO: 'Video', REELS: 'Reels', IMAGE: 'Image', CAROUSEL_ALBUM: 'Carousel' };
+
+function renderMedia() {
+  const visible = sortedMedia();
+  $('#mediaCount').textContent = `${visible.length} of ${mediaCache.length} shown`;
+  $('#mediaBody').innerHTML = visible.map(m => {
+    const yt = statusOf(m.id, 'youtube', logCache);
+    const tt = statusOf(m.id, 'tiktok', logCache);
+    const badge = (s) => s ? `<span class="badge ${s}">${s}</span>` : `<span class="pill">not posted</span>`;
+    return `
+      <tr>
+        <td><img class="thumb" src="${m.thumbnail_url || ''}" onerror="this.style.visibility='hidden'"/></td>
+        <td><span class="pill">${TYPE_LABELS[m.media_type] || m.media_type || '—'}</span></td>
+        <td class="caption-cell">${(m.caption || '').slice(0, 90).replace(/</g,'&lt;')}</td>
+        <td>${(m.hashtags || []).slice(0,4).join(' ')}</td>
+        <td class="muted">${m.timestamp ? new Date(m.timestamp).toLocaleDateString() : ''}</td>
+        <td>YT ${badge(yt)} &nbsp; TT ${badge(tt)}</td>
+        <td>
+          <div class="row-actions">
+            <input type="checkbox" data-id="${m.id}" class="mediaCheck" ${selectedMedia.has(m.id) ? 'checked' : ''}/>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  document.querySelectorAll('.mediaCheck').forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const id = e.target.dataset.id;
+      if (e.target.checked) selectedMedia.add(id); else selectedMedia.delete(id);
+    });
+  });
+}
+
+async function loadWorkflows() {
+  const [workflows, log] = await Promise.all([api('/api/workflows'), api('/api/log')]);
+  logCache = log;
+  renderWorkflows(workflows);
+  renderLog(log);
+  renderMedia();
+}
+
+const CRON_DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+/** Best-effort friendly description of a saved cron expression (5-field: min hour day month weekday). */
+function humanizeCron(cron) {
+  if (!cron) return 'Manual only';
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return `Custom (${cron})`;
+  const [min, hour, dom, mon, dow] = parts;
+  const time = (hour !== '*' && min !== '*') ? `${String(hour).padStart(2,'0')}:${String(min).padStart(2,'0')}` : null;
+
+  if (min === '0' && hour === '*' && dom === '*' && mon === '*' && dow === '*') return 'Every hour';
+  if (time && dom === '*' && mon === '*' && dow === '*') return `Daily at ${time}`;
+  if (time && dom === '*' && mon === '*' && dow !== '*') {
+    const days = dow.split(',').map(d => CRON_DAY_NAMES[Number(d)] || d).join(', ');
+    return `${days} at ${time}`;
+  }
+  return `Custom (${cron})`;
+}
+
+function renderWorkflows(workflows) {
+  $('#workflowsList').innerHTML = workflows.map(wf => `
+    <div class="wf-card">
+      <div class="title">
+        <span>${wf.name} <span class="pill">${wf.target}</span> <span class="pill">${humanizeCron(wf.schedule_cron)}</span></span>
+        <div class="row-actions">
+          <button data-action="run" data-id="${wf.id}">Run now</button>
+          <button data-action="run-selected" data-id="${wf.id}" class="secondary">Run selected</button>
+          <button data-action="toggle" data-id="${wf.id}" class="secondary">${wf.enabled ? 'Disable' : 'Enable'}</button>
+          <button data-action="delete" data-id="${wf.id}" class="danger">Delete</button>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:6px">${wf.posts_per_run} post(s) per run &middot; privacy: ${wf.privacy || 'default'} &middot; order: ${wf.post_order === 'oldest_first' ? 'oldest first' : 'newest first'}</div>
+    </div>
+  `).join('') || '<div class="muted">No workflows yet — create one above.</div>';
+
+  document.querySelectorAll('[data-action]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      try {
+        if (action === 'run') {
+          btn.disabled = true;
+          await api(`/api/workflows/${id}/run`, { method: 'POST', body: JSON.stringify({}) });
+          toast('Workflow run complete');
+        } else if (action === 'run-selected') {
+          if (!selectedMedia.size) { toast('Select some media rows first', true); return; }
+          btn.disabled = true;
+          await api(`/api/workflows/${id}/run`, { method: 'POST', body: JSON.stringify({ mediaIds: Array.from(selectedMedia) }) });
+          toast('Workflow run complete (selected items)');
+        } else if (action === 'toggle') {
+          const wf = workflows.find(w => String(w.id) === id);
+          await api(`/api/workflows/${id}`, { method: 'PUT', body: JSON.stringify({ enabled: wf.enabled ? 0 : 1 }) });
+        } else if (action === 'delete') {
+          if (!confirm('Delete this workflow?')) return;
+          await api(`/api/workflows/${id}`, { method: 'DELETE' });
+        }
+      } catch (err) {
+        toast('Error: ' + err.message, true);
+      } finally {
+        await loadWorkflows();
+      }
+    });
+  });
+}
+
+function renderLog(log) {
+  $('#logBody').innerHTML = log.map(l => `
+    <tr>
+      <td class="muted">${new Date(l.created_at).toLocaleString()}</td>
+      <td>${l.ig_media_id}</td>
+      <td>${l.target}</td>
+      <td><span class="badge ${l.status}">${l.status}</span></td>
+      <td class="muted">${l.remote_url ? `<a href="${l.remote_url}" target="_blank" style="color:var(--accent)">${l.remote_url}</a>` : (l.error || l.remote_id || '')}</td>
+    </tr>
+  `).join('') || '<tr><td class="muted" colspan="5">No activity yet.</td></tr>';
+}
+
+$('#fetchBtn').addEventListener('click', async () => {
+  const sinceDate = $('#fetchSince').value || null;
+  const untilDate = $('#fetchUntil').value || null;
+  if (sinceDate && untilDate && sinceDate > untilDate) {
+    toast('"Fetch from" date must be before "to" date', true);
+    return;
+  }
+  $('#fetchBtn').disabled = true;
+  $('#fetchBtn').textContent = 'Fetching...';
+  try {
+    await api('/api/media/fetch', {
+      method: 'POST',
+      body: JSON.stringify({ limit: Number($('#fetchLimit').value) || 50, sinceDate, untilDate })
+    });
+    await loadMedia();
+    toast(sinceDate || untilDate ? 'Instagram media fetched for selected date range' : 'Instagram media fetched');
+  } catch (err) {
+    toast('Fetch failed: ' + err.message, true);
+  } finally {
+    $('#fetchBtn').disabled = false;
+    $('#fetchBtn').textContent = 'Fetch from Instagram';
+  }
+});
+
+$('#mediaSort').addEventListener('change', renderMedia);
+$('#mediaTypeFilter').addEventListener('change', renderMedia);
+$('#mediaDateFrom').addEventListener('change', renderMedia);
+$('#mediaDateTo').addEventListener('change', renderMedia);
+$('#mediaDateClearBtn').addEventListener('click', () => {
+  $('#mediaDateFrom').value = '';
+  $('#mediaDateTo').value = '';
+  renderMedia();
+});
+
+// --- Friendly scheduler: builds a cron expression from frequency/time/day inputs ---
+
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function updateSchedulerVisibility() {
+  const freq = $('#schedFrequency').value;
+  $('#schedTimeWrap').hidden = !(freq === 'daily' || freq === 'weekly');
+  $('#schedDaysWrap').hidden = freq !== 'weekly';
+  $('#schedCustomWrap').hidden = freq !== 'custom';
+  updateSchedPreview();
+}
+
+/** Build a cron expression from the friendly controls, or null for manual-only. Throws on invalid custom cron. */
+function buildCronFromScheduler() {
+  const freq = $('#schedFrequency').value;
+  if (freq === 'manual') return null;
+
+  if (freq === 'hourly') return '0 * * * *';
+
+  if (freq === 'daily') {
+    const [h, m] = ($('#schedTime').value || '09:00').split(':').map(Number);
+    return `${m} ${h} * * *`;
+  }
+
+  if (freq === 'weekly') {
+    const [h, m] = ($('#schedTime').value || '09:00').split(':').map(Number);
+    const days = Array.from(document.querySelectorAll('.schedDay:checked')).map(cb => cb.value);
+    if (!days.length) throw new Error('Pick at least one day for a weekly schedule');
+    return `${m} ${h} * * ${days.join(',')}`;
+  }
+
+  if (freq === 'custom') {
+    const cron = $('#schedCustomCron').value.trim();
+    if (!cron) throw new Error('Enter a custom cron expression, or switch to a different schedule option');
+    return cron;
+  }
+
+  return null;
+}
+
+function describeCron(freq) {
+  try {
+    const cron = buildCronFromScheduler();
+    if (!cron) return 'Runs only when you click "Run now" — no automatic schedule.';
+    if (freq === 'hourly') return `Runs every hour, on the hour. (cron: ${cron})`;
+    if (freq === 'daily') {
+      const time = $('#schedTime').value || '09:00';
+      return `Runs daily at ${time}. (cron: ${cron})`;
+    }
+    if (freq === 'weekly') {
+      const time = $('#schedTime').value || '09:00';
+      const days = Array.from(document.querySelectorAll('.schedDay:checked')).map(cb => DAY_NAMES[Number(cb.value)]);
+      return `Runs at ${time} on ${days.join(', ')}. (cron: ${cron})`;
+    }
+    if (freq === 'custom') return `Custom schedule. (cron: ${cron})`;
+    return '';
+  } catch (err) {
+    return err.message;
+  }
+}
+
+function updateSchedPreview() {
+  $('#schedPreview').textContent = describeCron($('#schedFrequency').value);
+}
+
+$('#schedFrequency').addEventListener('change', updateSchedulerVisibility);
+$('#schedTime').addEventListener('change', updateSchedPreview);
+$('#schedCustomCron').addEventListener('input', updateSchedPreview);
+document.querySelectorAll('.schedDay').forEach(cb => cb.addEventListener('change', updateSchedPreview));
+
+$('#createWfBtn').addEventListener('click', async () => {
+  const name = $('#newName').value.trim();
+  const target = $('#newTarget').value;
+  const postsPerRun = Number($('#newPostsPerRun').value) || 1;
+  const postOrder = $('#newPostOrder').value;
+  if (!name) { toast('Name your workflow first', true); return; }
+
+  let scheduleCron;
+  try {
+    scheduleCron = buildCronFromScheduler();
+  } catch (err) {
+    toast(err.message, true);
+    return;
+  }
+
+  try {
+    await api('/api/workflows', { method: 'POST', body: JSON.stringify({ name, target, postsPerRun, postOrder, scheduleCron }) });
+    $('#newName').value = '';
+    $('#schedFrequency').value = 'manual';
+    updateSchedulerVisibility();
+    await loadWorkflows();
+    toast('Workflow created');
+  } catch (err) {
+    toast('Error: ' + err.message, true);
+  }
+});
+
+function setupMediaCollapse() {
+  const header = document.getElementById('mediaSectionHeader');
+  const body = document.getElementById('mediaSectionBody');
+  const chevron = document.getElementById('mediaChevron');
+
+  function applyCollapsed(collapsed) {
+    body.classList.toggle('collapsed', collapsed);
+    chevron.style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+    try { localStorage.setItem('mediaSectionCollapsed', collapsed ? '1' : '0'); } catch (e) {}
+  }
+
+  header.addEventListener('click', () => {
+    applyCollapsed(!body.classList.contains('collapsed'));
+  });
+
+  let startCollapsed = false;
+  try { startCollapsed = localStorage.getItem('mediaSectionCollapsed') === '1'; } catch (e) {}
+  applyCollapsed(startCollapsed);
+}
+
+(async function init() {
+  setupMediaCollapse();
+  updateSchedulerVisibility();
+  await loadConnections();
+  await loadMedia();
+  await loadWorkflows();
+  setInterval(loadWorkflows, 15000);
+})();
+</script>
+</body>
+</html>

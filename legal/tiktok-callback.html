@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TikTok Connection Code</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#faf9f7; --bg-raised:#ffffff; --ink:#1a1a1a; --ink-soft:#565248;
+    --border:#e3e0da; --accent:#4a5a75; --accent-soft:#eef1f6;
+    --good:#3d6b52; --good-bg:#e7f1ea; --bad:#a13f3f; --bad-bg:#f6e8e6;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15161a; --bg-raised:#1c1e24; --ink:#e8e6e1; --ink-soft:#a5a19a;
+      --border:#33353d; --accent:#8fa4cc; --accent-soft:#242a38;
+      --good:#7fc9a1; --good-bg:#1c2b22; --bad:#e08a8a; --bad-bg:#2c1c1c;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15161a; --bg-raised:#1c1e24; --ink:#e8e6e1; --ink-soft:#a5a19a;
+    --border:#33353d; --accent:#8fa4cc; --accent-soft:#242a38;
+    --good:#7fc9a1; --good-bg:#1c2b22; --bad:#e08a8a; --bad-bg:#2c1c1c;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,sans-serif;
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    line-height:1.6;
+  }
+  .card{max-width:600px; width:100%; margin:24px; padding:40px}
+  .eyebrow{
+    font-family:"JetBrains Mono",monospace; font-size:12px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 14px;
+  }
+  h1{
+    font-family:"Source Serif 4",Georgia,serif; font-weight:700; font-size:28px;
+    margin:0 0 12px; text-wrap:balance;
+  }
+  p.lede{color:var(--ink-soft); margin:0 0 28px; font-size:15px}
+  .code-box{
+    background:var(--bg-raised); border:1px solid var(--border); border-radius:10px;
+    padding:20px; margin-bottom:20px;
+  }
+  .code-box .label{
+    font-family:"JetBrains Mono",monospace; font-size:11px; letter-spacing:.06em;
+    text-transform:uppercase; color:var(--ink-soft); margin-bottom:10px;
+  }
+  .code-value{
+    font-family:"JetBrains Mono",monospace; font-size:13px; word-break:break-all;
+    background:var(--accent-soft); border-radius:6px; padding:14px; color:var(--ink);
+    user-select:all; cursor:text;
+  }
+  button{
+    background:var(--accent); color:#fff; border:none; border-radius:7px;
+    padding:11px 18px; font-size:14px; font-weight:500; cursor:pointer; margin-top:12px;
+  }
+  button:active{transform:translateY(1px)}
+  .status{
+    display:inline-flex; align-items:center; gap:6px; font-size:13px;
+    padding:4px 10px; border-radius:20px; margin-left:10px;
+  }
+  .status.good{background:var(--good-bg); color:var(--good)}
+  .instructions{
+    font-size:14px; color:var(--ink-soft); background:var(--accent-soft);
+    border-left:3px solid var(--accent); border-radius:8px; padding:16px 20px; margin-top:24px;
+  }
+  .instructions strong{color:var(--ink)}
+  .empty{color:var(--bad); background:var(--bad-bg); padding:16px 20px; border-radius:8px; font-size:14px}
+</style>
+</head>
+<body>
+  <div class="card">
+    <p class="eyebrow">TikTok Login</p>
+    <h1 id="heading">Authorization received</h1>
+    <p class="lede" id="lede">Copy the code below and paste it into your local app's dashboard to finish connecting TikTok.</p>
+
+    <div id="content"></div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const error = params.get('error');
+    const errorDescription = params.get('error_description');
+    const content = document.getElementById('content');
+
+    if (code) {
+      const box = document.createElement('div');
+      box.className = 'code-box';
+      box.innerHTML = `
+        <div class="label">Authorization code</div>
+        <div class="code-value" id="codeValue">${code.replace(/</g, '&lt;')}</div>
+      `;
+      content.appendChild(box);
+
+      const btn = document.createElement('button');
+      btn.textContent = 'Copy to clipboard';
+      btn.onclick = async () => {
+        await navigator.clipboard.writeText(code);
+        btn.textContent = 'Copied ✓';
+        setTimeout(() => btn.textContent = 'Copy to clipboard', 2000);
+      };
+      content.appendChild(btn);
+
+      const instructions = document.createElement('div');
+      instructions.className = 'instructions';
+      instructions.innerHTML = `<strong>Next step:</strong> go back to your local dashboard (http://localhost:3011), find the "Complete TikTok connection" field under TikTok in the Connections panel, paste this code, and submit.`;
+      content.appendChild(instructions);
+    } else if (error) {
+      document.getElementById('heading').textContent = 'Authorization failed';
+      document.getElementById('lede').textContent = '';
+      const box = document.createElement('div');
+      box.className = 'empty';
+      box.innerHTML = `<strong>${error}</strong>${errorDescription ? '<br>' + errorDescription.replace(/</g, '&lt;') : ''}`;
+      content.appendChild(box);
+    } else {
+      document.getElementById('heading').textContent = 'No authorization code found';
+      document.getElementById('lede').textContent = '';
+      const box = document.createElement('div');
+      box.className = 'empty';
+      box.textContent = 'This page is meant to be reached via TikTok\'s OAuth redirect, with a code or error parameter in the URL.';
+      content.appendChild(box);
+    }
+  </script>
+</body>
+</html>

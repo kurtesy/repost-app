@@ -1,0 +1,330 @@
+<title>Repost Pipeline Diagram</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#faf9f7;
+    --bg-raised:#ffffff;
+    --ink:#181a1f;
+    --ink-soft:#5c584d;
+    --border:#e3e0da;
+    --accent:#4a5a75;
+    --accent-soft:#eef1f6;
+    --accent-strong:#2e3a4f;
+    --line-idle:#d6d2c8;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15161a;
+      --bg-raised:#1c1e24;
+      --ink:#e8e6e1;
+      --ink-soft:#a5a19a;
+      --border:#33353d;
+      --accent:#8fa4cc;
+      --accent-soft:#242a38;
+      --accent-strong:#c3d2ea;
+      --line-idle:#33353d;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15161a;
+    --bg-raised:#1c1e24;
+    --ink:#e8e6e1;
+    --ink-soft:#a5a19a;
+    --border:#33353d;
+    --accent:#8fa4cc;
+    --accent-soft:#242a38;
+    --accent-strong:#c3d2ea;
+    --line-idle:#33353d;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,sans-serif;
+    line-height:1.5;
+  }
+
+  .wrap{
+    max-width:640px;
+    margin:0 auto;
+    padding:56px 28px 64px;
+  }
+
+  header{
+    margin-bottom:40px;
+  }
+  .eyebrow{
+    font-family:"JetBrains Mono",monospace;
+    font-size:12px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 12px;
+  }
+  h1{
+    font-size:24px;
+    font-weight:600;
+    margin:0 0 10px;
+    text-wrap:balance;
+  }
+  p.sub{
+    color:var(--ink-soft);
+    font-size:14.5px;
+    margin:0;
+    max-width:52ch;
+  }
+
+  .pipeline{
+    position:relative;
+  }
+
+  .stage{
+    display:grid;
+    grid-template-columns:44px 1fr;
+    gap:16px;
+    position:relative;
+  }
+
+  .rail{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+  .dot{
+    width:12px;
+    height:12px;
+    border-radius:50%;
+    background:var(--bg-raised);
+    border:1.5px solid var(--line-idle);
+    flex:none;
+    transition:background .3s ease, border-color .3s ease, box-shadow .3s ease;
+  }
+  .connector{
+    width:2px;
+    flex:1;
+    background:var(--line-idle);
+    min-height:36px;
+    position:relative;
+    overflow:hidden;
+  }
+  .connector::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:var(--accent);
+    transform:scaleY(0);
+    transform-origin:top;
+    transition:transform .5s ease;
+  }
+
+  .card{
+    background:var(--bg-raised);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:16px 18px;
+    margin-bottom:28px;
+    transition:border-color .3s ease, box-shadow .3s ease;
+  }
+  .stage-label{
+    font-family:"JetBrains Mono",monospace;
+    font-size:11px;
+    letter-spacing:.05em;
+    text-transform:uppercase;
+    color:var(--ink-soft);
+    margin:0 0 4px;
+    transition:color .3s ease;
+  }
+  .stage-title{
+    font-size:15.5px;
+    font-weight:600;
+    margin:0 0 4px;
+  }
+  .stage-detail{
+    font-size:13.5px;
+    color:var(--ink-soft);
+    margin:0;
+  }
+
+  .stage.active .dot{
+    background:var(--accent);
+    border-color:var(--accent);
+    box-shadow:0 0 0 4px var(--accent-soft);
+  }
+  .stage.active .connector::after{
+    transform:scaleY(1);
+  }
+  .stage.active .card{
+    border-color:var(--accent);
+    box-shadow:0 2px 10px -4px rgba(0,0,0,.15);
+  }
+  .stage.active .stage-label{
+    color:var(--accent-strong);
+  }
+
+  .split{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+  }
+  @media (max-width:520px){
+    .split{grid-template-columns:1fr}
+  }
+
+  .controls{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-top:8px;
+  }
+  .controls button{
+    font-family:"JetBrains Mono",monospace;
+    font-size:12px;
+    background:var(--accent-soft);
+    color:var(--accent-strong);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:6px 12px;
+    cursor:pointer;
+  }
+  .controls button:hover{border-color:var(--accent)}
+  .controls .status{
+    font-family:"JetBrains Mono",monospace;
+    font-size:11px;
+    color:var(--ink-soft);
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .connector::after, .dot, .card{transition:none}
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Historical repost tool</p>
+    <h1>How one post moves through the pipeline</h1>
+    <p class="sub">Six stages, from the original Instagram reel to a logged result on YouTube or TikTok. Each stage highlights in turn.</p>
+  </header>
+
+  <div class="pipeline" id="pipeline">
+    <div class="stage" data-stage="0">
+      <div class="rail"><div class="dot"></div><div class="connector"></div></div>
+      <div class="card">
+        <p class="stage-label">01 — source</p>
+        <p class="stage-title">Instagram</p>
+        <p class="stage-detail">Fetch historical reels and video posts via the Graph API.</p>
+      </div>
+    </div>
+
+    <div class="stage" data-stage="1">
+      <div class="rail"><div class="dot"></div><div class="connector"></div></div>
+      <div class="card">
+        <p class="stage-label">02 — storage</p>
+        <p class="stage-title">Local media table</p>
+        <p class="stage-detail">Video file, caption, and parsed hashtags saved to the local database.</p>
+      </div>
+    </div>
+
+    <div class="stage" data-stage="2">
+      <div class="rail"><div class="dot"></div><div class="connector"></div></div>
+      <div class="card">
+        <p class="stage-label">03 — selection</p>
+        <p class="stage-title">Workflow picks a post</p>
+        <p class="stage-detail">Manually checked rows, or the next un-posted item in newest- or oldest-first order.</p>
+      </div>
+    </div>
+
+    <div class="stage" data-stage="3">
+      <div class="rail"><div class="dot"></div><div class="connector"></div></div>
+      <div class="card">
+        <p class="stage-label">04 — mapping</p>
+        <p class="stage-title">Caption and tag mapping</p>
+        <p class="stage-detail">One caption becomes a YouTube title/description/tags, or a TikTok caption with hashtags inline.</p>
+      </div>
+    </div>
+
+    <div class="stage" data-stage="4">
+      <div class="rail"><div class="dot"></div><div class="connector"></div></div>
+      <div class="card">
+        <p class="stage-label">05 — dedupe</p>
+        <p class="stage-title">Duplicate check</p>
+        <p class="stage-detail">Cross-checked against this app's own post log, and — for YouTube — the channel's real upload history.</p>
+      </div>
+    </div>
+
+    <div class="stage" data-stage="5">
+      <div class="rail"><div class="dot"></div></div>
+      <div class="card">
+        <p class="stage-label">06 — delivery</p>
+        <div class="split">
+          <div>
+            <p class="stage-title">YouTube Shorts</p>
+            <p class="stage-detail">Uploaded with title, description, tags.</p>
+          </div>
+          <div>
+            <p class="stage-title">TikTok</p>
+            <p class="stage-detail">Posted, or drafted if unaudited.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="toggleBtn">Pause</button>
+    <span class="status" id="statusText">Playing — stage 1 of 6</span>
+  </div>
+</div>
+
+<script>
+  const stages = Array.from(document.querySelectorAll('.stage'));
+  const statusText = document.getElementById('statusText');
+  const toggleBtn = document.getElementById('toggleBtn');
+  let current = 0;
+  let playing = true;
+  let timer = null;
+
+  function setActive(index) {
+    stages.forEach((s, i) => s.classList.toggle('active', i <= index));
+    statusText.textContent = (playing ? 'Playing' : 'Paused') + ' — stage ' + (index + 1) + ' of ' + stages.length;
+  }
+
+  function tick() {
+    setActive(current);
+    current = (current + 1) % (stages.length + 1);
+    if (current === stages.length) {
+      // brief pause at full pipeline before looping
+      timer = setTimeout(() => { current = 0; tick(); }, 1400);
+      return;
+    }
+  }
+
+  function start() {
+    if (timer) clearTimeout(timer);
+    playing = true;
+    toggleBtn.textContent = 'Pause';
+    const step = () => {
+      setActive(current);
+      current = (current + 1) % (stages.length + 1);
+      const delay = current === 0 ? 900 : 700;
+      timer = setTimeout(step, delay);
+    };
+    step();
+  }
+
+  function stop() {
+    if (timer) clearTimeout(timer);
+    playing = false;
+    toggleBtn.textContent = 'Play';
+    statusText.textContent = 'Paused — stage ' + (Math.max(current, 1)) + ' of ' + stages.length;
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    if (playing) stop(); else start();
+  });
+
+  // Rest state: full pipeline visible immediately, then animation begins.
+  setActive(stages.length - 1);
+  setTimeout(start, 900);
+</script>

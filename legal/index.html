@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Historical Repost Tool — Legal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#faf9f7;
+    --bg-raised:#ffffff;
+    --ink:#1a1a1a;
+    --ink-soft:#565248;
+    --border:#e3e0da;
+    --accent:#4a5a75;
+    --accent-soft:#eef1f6;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#15161a;
+      --bg-raised:#1c1e24;
+      --ink:#e8e6e1;
+      --ink-soft:#a5a19a;
+      --border:#33353d;
+      --accent:#8fa4cc;
+      --accent-soft:#242a38;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#15161a;
+    --bg-raised:#1c1e24;
+    --ink:#e8e6e1;
+    --ink-soft:#a5a19a;
+    --border:#33353d;
+    --accent:#8fa4cc;
+    --accent-soft:#242a38;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Inter",-apple-system,BlinkMacSystemFont,sans-serif;
+    line-height:1.6;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-height:100vh;
+  }
+  .card{
+    max-width:520px;
+    width:100%;
+    margin:24px;
+    padding:40px;
+  }
+  .eyebrow{
+    font-family:"JetBrains Mono",monospace;
+    font-size:12px;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 14px;
+  }
+  h1{
+    font-family:"Source Serif 4",Georgia,serif;
+    font-weight:700;
+    font-size:32px;
+    margin:0 0 12px;
+    text-wrap:balance;
+  }
+  p.lede{color:var(--ink-soft); margin:0 0 32px; font-size:15.5px}
+  .links{display:flex; flex-direction:column; gap:12px}
+  a.doc-link{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:16px 20px;
+    background:var(--bg-raised);
+    border:1px solid var(--border);
+    border-radius:10px;
+    color:var(--ink);
+    text-decoration:none;
+    font-size:15px;
+    font-weight:500;
+    transition:border-color .12s ease, background .12s ease;
+  }
+  a.doc-link:hover{border-color:var(--accent); background:var(--accent-soft)}
+  a.doc-link .arrow{
+    font-family:"JetBrains Mono",monospace;
+    color:var(--accent);
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <p class="eyebrow">Historical Repost Tool</p>
+    <h1>Legal documents</h1>
+    <p class="lede">Required by Meta, Google, and TikTok's developer platforms for API access review.</p>
+    <div class="links">
+      <a class="doc-link" href="/privacy"><span>Privacy Policy</span><span class="arrow">→</span></a>
+      <a class="doc-link" href="/terms"><span>Terms of Service</span><span class="arrow">→</span></a>
+    </div>
+  </div>
+</body>
+</html>

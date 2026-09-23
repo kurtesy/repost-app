@@ -1,0 +1,23 @@
+{
+  "name": "repost-app",
+  "version": "1.0.0",
+  "description": "Repost historical Instagram reels/posts to YouTube Shorts and TikTok with matching video, caption, and tags.",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "cookie-session": "^2.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "form-data": "^4.0.1",
+    "google-auth-library": "^9.14.2",
+    "googleapis": "^144.0.0",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^2.7.0",
+    "sql.js": "^1.11.0"
+  }
+}
