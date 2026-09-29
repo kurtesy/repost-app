@@ -1,45 +1,87 @@
-// SQLite layer backed by sql.js (pure WebAssembly — no native compilation required).
-// Exposes a small synchronous-looking API (prepare().run/get/all(), exec()) so the
-// rest of the app can use it exactly like better-sqlite3, after `init()` has resolved once at boot.
+// Postgres (Neon) layer backed by node-postgres (`pg`). Exposes an async API:
+//   db.query(sql, params) -> { rows, rowCount, ... }   (pg's native result shape)
+//   db.prepare(sql).run/get/all(...params)              (thin async wrapper, kept so call
+//                                                         sites read close to the old sql.js
+//                                                         shape — every method is now async
+//                                                         and MUST be awaited)
+//
+// All placeholders in SQL strings are Postgres-style positional ($1, $2, ...). There is no
+// support for named (@name) placeholders anymore — pg has no native equivalent, so every call
+// site was converted to pass a plain, ordered array of values.
 
-const path = require('path');
-const fs = require('fs');
-const initSqlJs = require('sql.js');
+const { Pool, types } = require('pg');
 
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_FILE = path.join(DATA_DIR, 'app.db');
+// pg's default behavior is to return BIGINT columns (OID 20) as JS STRINGS, not numbers — this
+// is deliberate on pg's part, since a 64-bit BIGINT can hold values that lose precision as a JS
+// float. But every BIGINT column in this app's schema (created_at, fetched_at, expires_at,
+// last_run_at — see SCHEMA below) stores an epoch-millisecond Date.now() value, which fits
+// comfortably in a JS number, and every call site (this file's own callers, plus the frontend's
+// `new Date(row.created_at)`) has always assumed a plain number, exactly like the old sql.js/
+// better-sqlite3 layer returned. Without this override, `new Date("1727654321000")` — a numeric
+// STRING — is `Invalid Date` in JavaScript (only date/time-formatted strings parse; a numeric
+// string does not), which is exactly why the Activity Log's "When" column started showing
+// "Invalid Date" after this app migrated from sql.js to Postgres. Registering this parser once,
+// globally, for OID 20 fixes every BIGINT column's JSON serialization at once, rather than
+// patching each individual API route/call site that happens to touch one.
+types.setTypeParser(20, (val) => (val === null ? null : parseInt(val, 10)));
 
-let SQL = null;
-let sqljsDb = null;
+// In a serverless environment (Vercel), this module is cached across warm invocations within
+// the same execution context/instance, so creating the Pool once at module load (rather than
+// per-request) lets connections be reused instead of reopened on every function call. A brand
+// new cold start gets a fresh module (and fresh Pool); Neon's pooled connection string (or its
+// own PgBouncer-based pooling) is what keeps this cheap across many concurrent instances.
+let pool = null;
 let ready = false;
-let saveTimer = null;
 
+function getPool() {
+  if (!pool) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is not set — point it at your Neon Postgres connection string.');
+    }
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      // Neon requires SSL; rejectUnauthorized: false avoids needing Neon's CA bundle locally.
+      ssl: { rejectUnauthorized: false }
+    });
+  }
+  return pool;
+}
+
+// created_at / fetched_at / expires_at are stored as BIGINT epoch-milliseconds (Date.now()),
+// matching exactly what the old SQLite INTEGER columns held. This is the least invasive choice
+// since every call site already does `created_at: Date.now()` etc. and reads/compares them as
+// plain JS numbers. The tradeoff: these columns are opaque to Postgres's date/time functions and
+// tooling (no native TIMESTAMPTZ comparisons, no `NOW()` interop, indexes/EXPLAIN won't reason
+// about them as time) — a future migration to TIMESTAMPTZ (storing ISO strings / `to_timestamp()`)
+// would be preferable if this data is ever queried by time range directly in SQL, but is out of
+// scope here since it would require touching every read site's assumption that these are numbers.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS tokens (
   provider TEXT PRIMARY KEY,
   access_token TEXT,
   refresh_token TEXT,
-  expires_at INTEGER,
+  expires_at BIGINT,
   meta TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ig_media (
   id TEXT PRIMARY KEY,
-  media_type TEXT,         -- IG's own type: VIDEO | REELS | IMAGE | CAROUSEL_ALBUM
-  media_url TEXT,          -- for CAROUSEL_ALBUM, the first slide's URL
-  first_slide_type TEXT,   -- VIDEO | IMAGE — what media_url actually points to (matters for carousels)
+  media_type TEXT,          -- IG's own type: VIDEO | REELS | IMAGE | CAROUSEL_ALBUM
+  media_product_type TEXT,  -- REELS | FEED | STORY | AD — confirmed: Graph API never returns
+                            -- media_url for REELS regardless of post age (see SETUP.md)
+  media_url TEXT,           -- for CAROUSEL_ALBUM, the first slide's URL
+  first_slide_type TEXT,    -- VIDEO | IMAGE — what media_url actually points to (matters for carousels)
   permalink TEXT,
   caption TEXT,
   hashtags TEXT,
   timestamp TEXT,
   thumbnail_url TEXT,
   local_path TEXT,
-  fetched_at INTEGER
+  fetched_at BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS workflows (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   target TEXT NOT NULL,
   enabled INTEGER DEFAULT 1,
@@ -48,11 +90,13 @@ CREATE TABLE IF NOT EXISTS workflows (
   caption_template TEXT,
   privacy TEXT DEFAULT 'public',
   post_order TEXT DEFAULT 'newest_first',
-  created_at INTEGER
+  upload_as TEXT DEFAULT 'shorts', -- 'shorts' | 'video' — YouTube workflows only; 'video' skips
+                                   -- the #Shorts tag so YouTube classifies by actual video length
+  created_at BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS post_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   workflow_id INTEGER,
   ig_media_id TEXT,
   target TEXT,
@@ -60,73 +104,57 @@ CREATE TABLE IF NOT EXISTS post_log (
   remote_id TEXT,
   remote_url TEXT,
   error TEXT,
-  created_at INTEGER
+  created_at BIGINT
 );
 `;
 
 /**
  * Add columns that didn't exist in earlier versions of this app's schema, for databases
- * created before this column was introduced. CREATE TABLE IF NOT EXISTS above only handles
- * brand-new databases — existing ones need an explicit ALTER TABLE, and SQLite has no
- * "ADD COLUMN IF NOT EXISTS", so we check pragma table_info first.
+ * created before this column was introduced. Postgres supports `ADD COLUMN IF NOT EXISTS`
+ * natively, so — unlike the old SQLite path — no need to inspect information_schema first;
+ * kept as a helper anyway for the one column whose default depends on runtime state (none here
+ * currently, but this mirrors the old structure and is easy to extend).
  */
-function columnNames(table) {
-  const cols = sqljsDb.exec(`PRAGMA table_info(${table})`);
-  return cols.length ? cols[0].values.map(row => row[1]) : [];
+async function columnNames(client, table) {
+  const { rows } = await client.query(
+    `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+    [table]
+  );
+  return rows.map(r => r.column_name);
 }
 
-function runMigrations() {
-  const workflowCols = columnNames('workflows');
-  if (!workflowCols.includes('post_order')) {
-    sqljsDb.run(`ALTER TABLE workflows ADD COLUMN post_order TEXT DEFAULT 'newest_first'`);
-  }
+async function runMigrations(client) {
+  // Postgres's ADD COLUMN IF NOT EXISTS makes the old columnNames()-then-ALTER dance
+  // unnecessary, but columnNames() is kept available/used here for parity and clarity.
+  await client.query(`ALTER TABLE workflows ADD COLUMN IF NOT EXISTS post_order TEXT DEFAULT 'newest_first'`);
+  await client.query(`ALTER TABLE workflows ADD COLUMN IF NOT EXISTS upload_as TEXT DEFAULT 'shorts'`);
+  await client.query(`ALTER TABLE ig_media ADD COLUMN IF NOT EXISTS first_slide_type TEXT`);
+  await client.query(`ALTER TABLE ig_media ADD COLUMN IF NOT EXISTS media_product_type TEXT`);
+  // Observability only (not used for due-to-run logic — see server/routes/cron.js's simplified
+  // "run once per day whenever this endpoint fires" scheduling model): records the last time
+  // each workflow was attempted by the daily cron tick.
+  await client.query(`ALTER TABLE workflows ADD COLUMN IF NOT EXISTS last_run_at BIGINT`);
 
-  const igMediaCols = columnNames('ig_media');
-  if (!igMediaCols.includes('first_slide_type')) {
-    sqljsDb.run(`ALTER TABLE ig_media ADD COLUMN first_slide_type TEXT`);
-  }
-}
-
-function scheduleSave() {
-  // Debounce disk writes so bursts of inserts don't thrash the filesystem.
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      const data = sqljsDb.export();
-      fs.writeFileSync(DB_FILE, Buffer.from(data));
-    } catch (err) {
-      console.error('[db] failed to persist database:', err.message);
-    }
-  }, 50);
-}
-
-function saveNowSync() {
-  if (!sqljsDb) return;
-  const data = sqljsDb.export();
-  fs.writeFileSync(DB_FILE, Buffer.from(data));
+  // Retained for parity with the old introspection-based approach / future use.
+  void columnNames;
 }
 
 async function init() {
   if (ready) return;
-  SQL = await initSqlJs({
-    // Resolve the wasm file that ships inside the sql.js package.
-    locateFile: (file) => path.join(require.resolve('sql.js/dist/sql-wasm.wasm'))
-  });
+  const p = getPool();
 
-  if (fs.existsSync(DB_FILE)) {
-    const fileBuffer = fs.readFileSync(DB_FILE);
-    sqljsDb = new SQL.Database(fileBuffer);
-  } else {
-    sqljsDb = new SQL.Database();
+  // Verify connectivity before doing anything else.
+  await p.query('SELECT 1');
+
+  const client = await p.connect();
+  try {
+    await client.query(SCHEMA);
+    await runMigrations(client);
+  } finally {
+    client.release();
   }
-  sqljsDb.run(SCHEMA);
-  runMigrations();
-  saveNowSync();
-  ready = true;
 
-  // Persist on graceful shutdown too.
-  process.on('SIGINT', () => { saveNowSync(); process.exit(0); });
-  process.on('SIGTERM', () => { saveNowSync(); process.exit(0); });
+  ready = true;
 }
 
 function assertReady() {
@@ -135,85 +163,44 @@ function assertReady() {
   }
 }
 
-/** Convert sql.js's columns+values row shape into a plain object. */
-function rowsToObjects(stmt) {
-  const out = [];
-  while (stmt.step()) {
-    out.push(stmt.getAsObject());
-  }
-  stmt.free();
-  return out;
+/** Raw query passthrough — returns pg's native `{ rows, rowCount, ... }` result object. */
+async function query(sql, params = []) {
+  assertReady();
+  return getPool().query(sql, params);
 }
 
-/** sql.js's bind() throws on JS `undefined` (it only accepts null) — coerce any undefined to null. */
-function toBindable(v) {
-  return v === undefined ? null : v;
-}
-
-/** Bind either an array of positional params or an object of named params (@name). */
-function bindParams(stmt, params) {
-  if (params === undefined) return;
-  if (Array.isArray(params)) {
-    stmt.bind(params.map(toBindable));
-  } else {
-    // sql.js expects named placeholders prefixed with @, :, or $ — our SQL uses @name.
-    const bound = {};
-    for (const [k, v] of Object.entries(params)) bound['@' + k] = toBindable(v);
-    stmt.bind(bound);
-  }
-}
-
-// Normalize call-site arguments to a single params value, mimicking better-sqlite3:
-// - no args                         -> undefined
-// - one array/object arg            -> that array/object (positional list or named-param object)
-// - one plain scalar arg            -> [scalar] (single positional param)
-// - multiple scalar args            -> [...args] (positional params)
-function normalizeArgs(args) {
-  if (args.length === 0) return undefined;
-  if (args.length === 1) {
-    const a = args[0];
-    if (Array.isArray(a) || (a && typeof a === 'object')) return a;
-    return [a];
-  }
-  return args;
-}
-
+/**
+ * Compatibility wrapper mimicking the old sql.js/better-sqlite3-flavored `prepare(sql)` shape,
+ * but fully async — every method returns a Promise and MUST be awaited by callers.
+ *
+ * SQL passed here must already use Postgres positional placeholders ($1, $2, ...), not `?` or
+ * `@name` — there's no rewriting/translation layer, since pg has no native support for named
+ * parameters and every call site was updated to pass an ordered array instead.
+ */
 function prepare(sql) {
   assertReady();
   return {
-    run(...args) {
-      const params = normalizeArgs(args);
-      const stmt = sqljsDb.prepare(sql);
-      bindParams(stmt, params);
-      stmt.step();
-      stmt.free();
-      scheduleSave();
-      const lastId = sqljsDb.exec('SELECT last_insert_rowid() AS id')[0];
-      const lastInsertRowid = lastId ? lastId.values[0][0] : undefined;
-      return { lastInsertRowid, changes: sqljsDb.getRowsModified() };
+    async run(...params) {
+      const result = await getPool().query(sql, params);
+      // Postgres has no built-in `last_insert_rowid()` equivalent; callers that need the
+      // inserted id must add `RETURNING id` to their INSERT and read it off `rows[0].id`.
+      const lastInsertRowid = result.rows && result.rows[0] ? result.rows[0].id : undefined;
+      return { lastInsertRowid, changes: result.rowCount, rows: result.rows };
     },
-    get(...args) {
-      const params = normalizeArgs(args);
-      const stmt = sqljsDb.prepare(sql);
-      bindParams(stmt, params);
-      let result;
-      if (stmt.step()) result = stmt.getAsObject();
-      stmt.free();
-      return result;
+    async get(...params) {
+      const result = await getPool().query(sql, params);
+      return result.rows[0];
     },
-    all(...args) {
-      const params = normalizeArgs(args);
-      const stmt = sqljsDb.prepare(sql);
-      bindParams(stmt, params);
-      return rowsToObjects(stmt);
+    async all(...params) {
+      const result = await getPool().query(sql, params);
+      return result.rows;
     }
   };
 }
 
-function exec(sql) {
+async function exec(sql) {
   assertReady();
-  sqljsDb.run(sql);
-  scheduleSave();
+  await getPool().query(sql);
 }
 
-module.exports = { init, prepare, exec, isReady: () => ready };
+module.exports = { init, query, prepare, exec, isReady: () => ready };

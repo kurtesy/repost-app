@@ -49,6 +49,7 @@
   .badge.draft{background:rgba(255,180,84,.15);color:var(--warn)}
   .badge.pending{background:rgba(154,162,177,.15);color:var(--muted)}
   .badge.skipped_duplicate{background:rgba(108,140,255,.15);color:var(--accent)}
+  .badge.synced{background:rgba(108,140,255,.15);color:var(--accent)}
   .row-actions{display:flex;gap:6px}
   .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
   input[type=text], input[type=number], select{background:var(--panel2);border:1px solid var(--border);color:var(--text);padding:7px 10px;border-radius:6px;font-size:13px}
@@ -63,7 +64,10 @@
 <body>
 <header>
   <h1>📼 Historical Repost Dashboard</h1>
-  <div class="muted">Instagram Reels/Posts → YouTube Shorts &amp; TikTok</div>
+  <div style="display:flex;align-items:center;gap:16px">
+    <div class="muted">Instagram Reels/Posts → YouTube Shorts &amp; TikTok</div>
+    <button class="secondary" id="logoutBtn" style="padding:6px 12px">Log out</button>
+  </div>
 </header>
 
 <main>
@@ -80,7 +84,7 @@
     </h2>
     <div id="mediaSectionBody">
       <div class="toolbar">
-        <input type="number" id="fetchLimit" value="50" min="1" max="200" style="width:80px" title="Max posts to fetch (ignored once From/To dates below narrow the range and Instagram runs out of matching pages)" />
+        <input type="number" id="fetchLimit" value="50" min="1" max="5000" style="width:80px" title="Max posts to fetch, across as many pages as it takes (ignored once From/To dates below narrow the range and Instagram runs out of matching pages)" />
         <span class="sched-field">
           <label class="sched-label">Fetch from</label>
           <input type="date" id="fetchSince" title="Only fetch posts published on/after this date" />
@@ -90,6 +94,7 @@
           <input type="date" id="fetchUntil" title="Only fetch posts published on/before this date" />
         </span>
         <button id="fetchBtn">Fetch from Instagram</button>
+        <button id="syncYoutubeBtn" class="secondary" title="Check the connected YouTube channel for videos that are already posted (e.g. uploaded manually, or before this app logged them) and mark them as posted here too">Sync with YouTube</button>
         <select id="mediaSort" title="Display order (also affects the order rows are checked top-to-bottom for Run selected)">
           <option value="newest_first">Sort: Newest first</option>
           <option value="oldest_first">Sort: Oldest first</option>
@@ -110,6 +115,12 @@
           <input type="date" id="mediaDateTo" />
         </span>
         <button id="mediaDateClearBtn" class="secondary">Clear dates</button>
+        <select id="mediaPostedFilter" title="Filter by posting status">
+          <option value="all">Show: All</option>
+          <option value="unposted_any">Show: Not posted anywhere</option>
+          <option value="unposted_youtube">Show: Not posted to YouTube</option>
+          <option value="unposted_tiktok">Show: Not posted to TikTok</option>
+        </select>
         <span class="muted" id="mediaCount"></span>
       </div>
       <table>
@@ -123,8 +134,12 @@
     <h2>Workflows</h2>
     <div class="toolbar">
       <select id="newTarget">
-        <option value="youtube">→ YouTube Shorts</option>
+        <option value="youtube">→ YouTube</option>
         <option value="tiktok">→ TikTok</option>
+      </select>
+      <select id="newUploadAs" title="Whether YouTube treats the upload as a Short or a regular video">
+        <option value="shorts">Upload as: Shorts</option>
+        <option value="video">Upload as: Regular video</option>
       </select>
       <input type="text" id="newName" placeholder="Workflow name (e.g. IG to YouTube)" style="width:240px" />
       <input type="number" id="newPostsPerRun" placeholder="Posts per run" value="1" style="width:110px" />
@@ -201,6 +216,14 @@ async function api(path, opts = {}) {
     headers: { 'Content-Type': 'application/json' },
     ...opts
   });
+  if (res.status === 401) {
+    // Session missing/expired (or DASHBOARD_PASSWORD rotated) — bounce to the login page rather
+    // than showing a confusing JSON-parse-driven error toast.
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.href = `/login.html?next=${next}`;
+    // Never resolves — the redirect above takes over before any caller sees this rejection.
+    return new Promise(() => {});
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error ? JSON.stringify(data.error) : 'Request failed');
   return data;
@@ -287,6 +310,7 @@ async function loadMedia() {
 
 function filteredMedia() {
   const typeFilter = document.getElementById('mediaTypeFilter')?.value || 'all';
+  const postedFilter = document.getElementById('mediaPostedFilter')?.value || 'all';
   const fromVal = document.getElementById('mediaDateFrom')?.value || '';
   const toVal = document.getElementById('mediaDateTo')?.value || '';
   const fromTs = fromVal ? new Date(fromVal + 'T00:00:00').getTime() : null;
@@ -300,6 +324,13 @@ function filteredMedia() {
       if (t === null) return false;
       if (fromTs && t < fromTs) return false;
       if (toTs && t > toTs) return false;
+    }
+    if (postedFilter !== 'all') {
+      const ytPosted = !!statusOf(m.id, 'youtube', logCache);
+      const ttPosted = !!statusOf(m.id, 'tiktok', logCache);
+      if (postedFilter === 'unposted_any' && (ytPosted || ttPosted)) return false;
+      if (postedFilter === 'unposted_youtube' && ytPosted) return false;
+      if (postedFilter === 'unposted_tiktok' && ttPosted) return false;
     }
     return true;
   });
@@ -317,17 +348,32 @@ function sortedMedia() {
 
 const TYPE_LABELS = { VIDEO: 'Video', REELS: 'Reels', IMAGE: 'Image', CAROUSEL_ALBUM: 'Carousel' };
 
+// Instagram reports Reels as media_type: VIDEO with media_product_type: REELS (not
+// media_type: REELS as you might expect) — check media_product_type first so the dashboard
+// actually shows "Reels" for them instead of just "Video".
+function typeLabel(m) {
+  if (m.media_product_type === 'REELS') return 'Reels';
+  return TYPE_LABELS[m.media_type] || m.media_type || '—';
+}
+
+const MEDIA_DISPLAY_LIMIT = 50;
+
 function renderMedia() {
-  const visible = sortedMedia();
-  $('#mediaCount').textContent = `${visible.length} of ${mediaCache.length} shown`;
+  const matched = sortedMedia();
+  const visible = matched.slice(0, MEDIA_DISPLAY_LIMIT);
+  const countText = matched.length > MEDIA_DISPLAY_LIMIT
+    ? `showing ${visible.length} of ${matched.length} matching (${mediaCache.length} total) — narrow with filters above to see more`
+    : `${matched.length} of ${mediaCache.length} shown`;
+  $('#mediaCount').textContent = countText;
   $('#mediaBody').innerHTML = visible.map(m => {
     const yt = statusOf(m.id, 'youtube', logCache);
     const tt = statusOf(m.id, 'tiktok', logCache);
     const badge = (s) => s ? `<span class="badge ${s}">${s}</span>` : `<span class="pill">not posted</span>`;
+    const isReel = m.media_product_type === 'REELS';
     return `
       <tr>
         <td><img class="thumb" src="${m.thumbnail_url || ''}" onerror="this.style.visibility='hidden'"/></td>
-        <td><span class="pill">${TYPE_LABELS[m.media_type] || m.media_type || '—'}</span></td>
+        <td><span class="pill" ${isReel ? 'title="Instagram does not provide a downloadable media link for Reels via the API — see SETUP.md"' : ''}>${typeLabel(m)}${isReel ? ' ⚠️' : ''}</span></td>
         <td class="caption-cell">${(m.caption || '').slice(0, 90).replace(/</g,'&lt;')}</td>
         <td>${(m.hashtags || []).slice(0,4).join(' ')}</td>
         <td class="muted">${m.timestamp ? new Date(m.timestamp).toLocaleDateString() : ''}</td>
@@ -349,6 +395,9 @@ function renderMedia() {
 }
 
 async function loadWorkflows() {
+  // logCache (full history) drives per-row Posted/Not-posted badges in the media table — it must
+  // not be capped, or a post from beyond the cap would wrongly show as "not posted". The Activity
+  // Log table itself only ever displays the most recent 10 (sliced in renderLog).
   const [workflows, log] = await Promise.all([api('/api/workflows'), api('/api/log')]);
   logCache = log;
   renderWorkflows(workflows);
@@ -387,7 +436,7 @@ function renderWorkflows(workflows) {
           <button data-action="delete" data-id="${wf.id}" class="danger">Delete</button>
         </div>
       </div>
-      <div class="muted" style="margin-top:6px">${wf.posts_per_run} post(s) per run &middot; privacy: ${wf.privacy || 'default'} &middot; order: ${wf.post_order === 'oldest_first' ? 'oldest first' : 'newest first'}</div>
+      <div class="muted" style="margin-top:6px">${wf.posts_per_run} post(s) per run &middot; privacy: ${wf.privacy || 'default'} &middot; order: ${wf.post_order === 'oldest_first' ? 'oldest first' : 'newest first'}${wf.target === 'youtube' ? ` &middot; uploads as: ${wf.upload_as === 'video' ? 'regular video' : 'Shorts'}` : ''}</div>
     </div>
   `).join('') || '<div class="muted">No workflows yet — create one above.</div>';
 
@@ -422,7 +471,8 @@ function renderWorkflows(workflows) {
 }
 
 function renderLog(log) {
-  $('#logBody').innerHTML = log.map(l => `
+  // log is already ordered newest-first by the API (ORDER BY id DESC) — show only the most recent 10.
+  $('#logBody').innerHTML = log.slice(0, 10).map(l => `
     <tr>
       <td class="muted">${new Date(l.created_at).toLocaleString()}</td>
       <td>${l.ig_media_id}</td>
@@ -457,8 +507,31 @@ $('#fetchBtn').addEventListener('click', async () => {
   }
 });
 
+$('#syncYoutubeBtn').addEventListener('click', async () => {
+  $('#syncYoutubeBtn').disabled = true;
+  $('#syncYoutubeBtn').textContent = 'Syncing...';
+  try {
+    const result = await api('/api/sync/youtube', { method: 'POST', body: JSON.stringify({}) });
+    // Both caches drive the Posted badges/filters (mediaCache indirectly via renderMedia,
+    // logCache directly via statusOf) — reload both so newly-synced rows show up immediately
+    // without requiring a manual page refresh.
+    await Promise.all([loadMedia(), loadWorkflows()]);
+    if (result.matched > 0) {
+      toast(`Synced ${result.matched} post${result.matched === 1 ? '' : 's'} already on YouTube (checked ${result.checked}, ${result.channelVideoCount} videos on channel)`);
+    } else {
+      toast(`No new matches — checked ${result.checked} posts against ${result.channelVideoCount} channel videos`);
+    }
+  } catch (err) {
+    toast('Sync failed: ' + err.message, true);
+  } finally {
+    $('#syncYoutubeBtn').disabled = false;
+    $('#syncYoutubeBtn').textContent = 'Sync with YouTube';
+  }
+});
+
 $('#mediaSort').addEventListener('change', renderMedia);
 $('#mediaTypeFilter').addEventListener('change', renderMedia);
+$('#mediaPostedFilter').addEventListener('change', renderMedia);
 $('#mediaDateFrom').addEventListener('change', renderMedia);
 $('#mediaDateTo').addEventListener('change', renderMedia);
 $('#mediaDateClearBtn').addEventListener('click', () => {
@@ -537,11 +610,18 @@ $('#schedTime').addEventListener('change', updateSchedPreview);
 $('#schedCustomCron').addEventListener('input', updateSchedPreview);
 document.querySelectorAll('.schedDay').forEach(cb => cb.addEventListener('change', updateSchedPreview));
 
+function updateUploadAsVisibility() {
+  // Shorts-vs-video only means anything for YouTube — TikTok has no equivalent concept.
+  $('#newUploadAs').style.display = $('#newTarget').value === 'youtube' ? '' : 'none';
+}
+$('#newTarget').addEventListener('change', updateUploadAsVisibility);
+
 $('#createWfBtn').addEventListener('click', async () => {
   const name = $('#newName').value.trim();
   const target = $('#newTarget').value;
   const postsPerRun = Number($('#newPostsPerRun').value) || 1;
   const postOrder = $('#newPostOrder').value;
+  const uploadAs = $('#newUploadAs').value;
   if (!name) { toast('Name your workflow first', true); return; }
 
   let scheduleCron;
@@ -553,7 +633,7 @@ $('#createWfBtn').addEventListener('click', async () => {
   }
 
   try {
-    await api('/api/workflows', { method: 'POST', body: JSON.stringify({ name, target, postsPerRun, postOrder, scheduleCron }) });
+    await api('/api/workflows', { method: 'POST', body: JSON.stringify({ name, target, postsPerRun, postOrder, scheduleCron, uploadAs }) });
     $('#newName').value = '';
     $('#schedFrequency').value = 'manual';
     updateSchedulerVisibility();
@@ -587,6 +667,13 @@ function setupMediaCollapse() {
 (async function init() {
   setupMediaCollapse();
   updateSchedulerVisibility();
+  updateUploadAsVisibility();
+
+  document.getElementById('logoutBtn').addEventListener('click', async () => {
+    try { await api('/auth/logout', { method: 'POST', body: JSON.stringify({}) }); } catch (e) {}
+    window.location.href = '/login.html';
+  });
+
   await loadConnections();
   await loadMedia();
   await loadWorkflows();

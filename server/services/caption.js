@@ -13,11 +13,16 @@ function toYouTubeTitle(caption) {
   return title.length > 95 ? title.slice(0, 92) + '...' : title;
 }
 
-/** Build a YouTube description: full caption + hashtags + #Shorts. */
-function toYouTubeDescription(caption, hashtags) {
+/**
+ * Build a YouTube description: full caption + hashtags, optionally + #Shorts.
+ * asShorts (default true): when false, skips the #Shorts tag entirely so YouTube classifies
+ * the upload based on its actual video properties (length/aspect ratio) instead of being
+ * forced into Shorts — for workflows posting as regular videos.
+ */
+function toYouTubeDescription(caption, hashtags, asShorts = true) {
   const base = (caption || '').trim();
   const tagLine = hashtags.length ? `\n\n${hashtags.join(' ')}` : '';
-  const shortsTag = /#shorts/i.test(base) ? '' : '\n#Shorts';
+  const shortsTag = asShorts && !/#shorts/i.test(base) ? '\n#Shorts' : '';
   return `${base}${tagLine}${shortsTag}`.trim().slice(0, 4900);
 }
 

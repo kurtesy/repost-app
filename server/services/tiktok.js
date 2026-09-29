@@ -32,7 +32,7 @@ async function exchangeCodeForToken(code) {
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
   );
 
-  saveToken('tiktok', {
+  await saveToken('tiktok', {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
     expires_at: Date.now() + (data.expires_in || 0) * 1000,
@@ -42,7 +42,7 @@ async function exchangeCodeForToken(code) {
 }
 
 async function refreshIfNeeded() {
-  const tok = getToken('tiktok');
+  const tok = await getToken('tiktok');
   if (!tok) throw new Error('TikTok not connected yet.');
   if (tok.expires_at && tok.expires_at > Date.now() + 60000) return tok;
 
@@ -56,13 +56,13 @@ async function refreshIfNeeded() {
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
   );
 
-  saveToken('tiktok', {
+  await saveToken('tiktok', {
     access_token: data.access_token,
     refresh_token: data.refresh_token || tok.refresh_token,
     expires_at: Date.now() + (data.expires_in || 0) * 1000,
     meta: tok.meta
   });
-  return getToken('tiktok');
+  return await getToken('tiktok');
 }
 
 /**
@@ -185,5 +185,5 @@ module.exports = {
   exchangeCodeForToken,
   postVideo,
   postPhoto,
-  isConnected: () => !!getToken('tiktok')
+  isConnected: async () => !!(await getToken('tiktok'))
 };

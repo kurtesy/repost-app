@@ -14,6 +14,7 @@ You need three sets of API credentials: **Meta (Instagram)**, **Google Cloud (Yo
 - An Instagram account converted to a **Business or Creator account**, linked to a **Facebook Page**
 - A YouTube channel you own
 - A TikTok account
+- **[`yt-dlp`](https://github.com/yt-dlp/yt-dlp) installed and on your PATH** — required only for reposting Reels (see "Reels and yt-dlp" below); everything else works without it. Install with `pip install yt-dlp` (or see their install docs for other methods), then confirm it's on PATH by running `yt-dlp --version` in your terminal.
 
 ---
 
@@ -133,18 +134,45 @@ Open **http://localhost:3011**.
 
 All data lives locally in `data/app.db` (SQLite) and `data/media/` (downloaded video files) — nothing leaves your machine except the direct API calls to Meta, Google, and TikTok.
 
-## Limitation: Instagram won't serve `media_url` for older posts
+## Reels and yt-dlp
 
-Instagram's Graph API only returns the `media_url` field (a direct, signed CDN link to the actual video/image file) for posts up to a certain age. Once a post ages past that window, the field comes back empty — silently, with no error — even though `permalink` (the public instagram.com link) still works fine. This is a limitation of Instagram's API itself, not something this app's code can work around by re-fetching or refreshing tokens.
+Confirmed directly against Instagram's API (by logging its raw response): for any post where `media_product_type` is `REELS`, the Graph API returns no `media_url` at all — not because the post is old, not because of a permissions gap, but because Instagram simply never populates that field for Reels via this API, at any age. `permalink` (the public instagram.com/reel/... link) still works fine; only the direct downloadable file link is withheld through the official API. There is no supported Graph API field or endpoint that returns Reel video bytes.
 
-If a workflow run fails with *"Instagram no longer provides a direct media link for this post"*, that post is too old for the API to hand over its file directly. To repost it anyway:
+To work around this, the app automatically falls back to [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) whenever it needs to download a Reel's video (for reposting to YouTube, or to TikTok as a video post) — it shells out to `yt-dlp <permalink> -o data/media/<id>.mp4`, then continues exactly as it would with an Instagram-provided download. **Important distinction:** this reads from Instagram's public web page, not the official Graph API — a different trust boundary than the rest of the app, which otherwise only talks to Meta's, Google's, and TikTok's official APIs. It's your own content and a common, low-risk pattern for personal tools, but it isn't sanctioned by Instagram's Terms of Service the way the Graph API calls are, and could in principle break if Instagram changes its page structure (yt-dlp is actively maintained specifically to keep up with such changes).
 
-1. Find the post's `permalink` (shown in the dashboard, or in the error message) and manually download the video/image — a tool like [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) handles Instagram URLs directly:
-   ```
-   yt-dlp "https://www.instagram.com/p/XXXXXXXXX/" -o "<ig_media_id>.mp4"
-   ```
-   Use `.jpg` instead of `.mp4` for image posts. The `<ig_media_id>` is the numeric ID from the dashboard/error message.
-2. Move that file into `data/media/` inside this project, named exactly `<ig_media_id>.mp4` (or `.jpg`).
+### Installing yt-dlp (project-local venv, recommended)
+
+The app looks for yt-dlp inside a project-local Python virtual environment first (`.venv/bin/yt-dlp` on macOS/Linux, `.venv\Scripts\yt-dlp.exe` on Windows), before falling back to a global `yt-dlp` on PATH. This keeps the dependency isolated from the rest of your system instead of requiring a global pip install. Set it up once, from this project's root folder:
+
+```
+python3 -m venv .venv
+```
+
+Then install yt-dlp into it:
+
+- **macOS/Linux:** `.venv/bin/pip install yt-dlp`
+- **Windows (Command Prompt):** `.venv\Scripts\pip install yt-dlp`
+- **Windows (PowerShell):** `.venv\Scripts\pip.exe install yt-dlp`
+
+Verify it worked:
+
+- **macOS/Linux:** `.venv/bin/yt-dlp --version`
+- **Windows:** `.venv\Scripts\yt-dlp.exe --version`
+
+No further configuration needed — the app detects `.venv` automatically and uses it. Add `.venv/` to your `.gitignore` if this project is under version control, since it's a local, machine-specific folder that shouldn't be committed.
+
+**Alternative — global install (simpler, less isolated):** skip the venv and just run `pip install yt-dlp` (or `pipx install yt-dlp`) so `yt-dlp` is on your system PATH. The app falls back to this automatically if no `.venv` is found.
+
+If yt-dlp is missing entirely, or a download otherwise fails, the workflow fails that post with a clear message rather than silently skipping — check the message for the exact yt-dlp error.
+
+The dashboard flags Reels with a ⚠️ next to "Reels" in the Type column, purely as an indicator that this fallback path will be used for them.
+
+TikTok photo posting is the one path that still can't support Reels even with this fallback — TikTok's photo API needs a live remote URL it fetches itself (`PULL_FROM_URL`), not a local file, and Reels are always videos anyway, so this doesn't come up in practice.
+
+If you'd rather not install yt-dlp, or want to handle a specific Reel by hand instead, you can still do it manually:
+
+1. Download the video yourself (e.g. `yt-dlp "https://www.instagram.com/reel/XXXXXXXXX/" -o "<ig_media_id>.mp4"`, or any other method).
+2. Move that file into `data/media/` inside this project, named exactly `<ig_media_id>.mp4`.
 3. Stop the app, then point that post's `local_path` at the file you just added. The quickest way is a one-off Node script using the app's own DB module:
    ```js
    // save as e.g. fix-local-path.js in the project root, then run: node fix-local-path.js
@@ -153,12 +181,14 @@ If a workflow run fails with *"Instagram no longer provides a direct media link 
    (async () => {
      await db.init();
      const mediaId = '<ig_media_id>';
-     const filePath = path.join(__dirname, 'data', 'media', `${mediaId}.mp4`); // or .jpg
+     const filePath = path.join(__dirname, 'data', 'media', `${mediaId}.mp4`);
      db.prepare(`UPDATE ig_media SET local_path = ? WHERE id = ?`).run(filePath, mediaId);
      console.log('Updated local_path for', mediaId);
    })();
    ```
-4. Restart the app and re-run the workflow — since `local_path` now points to a real file on disk, the app skips Instagram entirely for that post and uses your manually-downloaded file.
+4. Restart the app and re-run the workflow — since `local_path` now points to a real file on disk, the app skips straight to using it.
+
+(A small number of very old non-Reel posts can separately return an empty `media_url` too — Instagram doesn't document a fixed cutoff for this, but it's rare and shows a different message pointing at possible deletion/archiving; the manual steps above work for those too.)
 
 ## Scheduling: built-in vs. OS-level (and why this can't move to Vercel)
 

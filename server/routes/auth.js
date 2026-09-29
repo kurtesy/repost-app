@@ -5,6 +5,24 @@ const youtube = require('../services/youtube');
 const tiktok = require('../services/tiktok');
 const { clearToken } = require('../db/tokens');
 const { safeErrorMessage } = require('../services/errors');
+const { passwordMatches } = require('../middleware/auth');
+
+// --- Dashboard password gate (single shared password, no user accounts) ---
+// Mounted before requireAuth would otherwise block it — see isPublicPath() in
+// server/middleware/auth.js, which allowlists this exact path.
+router.post('/login', (req, res) => {
+  const password = req.body?.password;
+  if (!passwordMatches(password)) {
+    return res.status(401).json({ error: 'Incorrect password' });
+  }
+  req.session.authenticated = true;
+  res.json({ ok: true });
+});
+
+router.post('/logout', (req, res) => {
+  req.session = null;
+  res.json({ ok: true });
+});
 
 router.get('/instagram', (req, res) => res.redirect(instagram.authUrl()));
 router.get('/instagram/callback', async (req, res) => {
@@ -59,21 +77,30 @@ const VALID_PROVIDERS = ['instagram', 'youtube', 'tiktok'];
 // and the Connect button starts a fresh OAuth flow. Useful when a refresh token has died
 // (e.g. Google's invalid_grant after a Testing-mode app's 7-day token expiry) — reconnecting
 // without disconnecting first can otherwise reuse a stale, still-invalid refresh token.
-router.post('/:provider/disconnect', (req, res) => {
-  const { provider } = req.params;
-  if (!VALID_PROVIDERS.includes(provider)) {
-    return res.status(400).json({ error: 'Unknown provider: ' + provider });
+router.post('/:provider/disconnect', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    if (!VALID_PROVIDERS.includes(provider)) {
+      return res.status(400).json({ error: 'Unknown provider: ' + provider });
+    }
+    await clearToken(provider);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: safeErrorMessage(err) });
   }
-  clearToken(provider);
-  res.json({ ok: true });
 });
 
-router.get('/status', (req, res) => {
-  res.json({
-    instagram: instagram.isConnected(),
-    youtube: youtube.isConnected(),
-    tiktok: tiktok.isConnected()
-  });
+router.get('/status', async (req, res) => {
+  try {
+    const [ig, yt, tt] = await Promise.all([
+      instagram.isConnected(),
+      youtube.isConnected(),
+      tiktok.isConnected()
+    ]);
+    res.json({ instagram: ig, youtube: yt, tiktok: tt });
+  } catch (err) {
+    res.status(500).json({ error: safeErrorMessage(err) });
+  }
 });
 
 module.exports = router;
