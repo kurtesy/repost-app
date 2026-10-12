@@ -3,3 +3,5 @@ data/
 certs/
 node_modules/
 .venv/
+
+.DS_store

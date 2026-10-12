@@ -9,7 +9,26 @@ const crypto = require('crypto');
 // structure rather than renaming ~15 established routes.
 const PUBLIC_PATHS = new Set([
   '/auth/login',
-  '/login.html'
+  '/login.html',
+  // Legal pages + TikTok OAuth relay + TikTok's domain-verification file — formerly hosted on a
+  // completely separate Vercel project ("repost-tool", the legal/ folder) with no auth of its
+  // own; folded into this app's own deployment so there's only one project to manage, but they
+  // must stay reachable without a dashboard session for the same reasons that separate project
+  // never had a password gate: Meta/Google/TikTok's automated app-review crawlers fetch
+  // /privacy and /terms unauthenticated, TikTok's own servers hit /tiktok-callback directly as
+  // part of its OAuth redirect (same category as the /auth/*/callback routes below — a TikTok-
+  // issued authorization code, not a secret, so there's nothing meaningful to protect here), and
+  // TikTok's domain-ownership check fetches the verification .txt file directly, also
+  // unauthenticated. Gating any of these would break OAuth reconnects or fail app review.
+  '/legal',
+  '/legal/index.html',
+  '/privacy',
+  '/legal/privacy.html',
+  '/terms',
+  '/legal/terms.html',
+  '/tiktok-callback',
+  '/legal/tiktok-callback.html',
+  '/tiktokQqJHfRpq8RLRODEPr4hBUfs9wiH4DcQa.txt'
 ]);
 
 // OAuth redirect callbacks — hit directly by Meta/Google/TikTok's servers after the user

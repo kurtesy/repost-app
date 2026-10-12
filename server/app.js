@@ -36,6 +36,20 @@ function createApp() {
   app.use(requireAuth);
 
   app.use(express.static(path.join(__dirname, '..', 'public')));
+
+  // Clean-URL aliases for the legal pages, matching the exact paths the separate "repost-tool"
+  // Vercel project used to serve at its own domain (see server/middleware/auth.js's PUBLIC_PATHS
+  // for why these must stay reachable without a session) — kept as the canonical URLs so nothing
+  // needs to change in Meta/Google/TikTok's app-review submissions or TikTok's registered
+  // redirect URI, only the domain those URLs are now hosted on.
+  const LEGAL_DIR = path.join(__dirname, '..', 'public', 'legal');
+  app.get('/legal', (req, res) => res.sendFile(path.join(LEGAL_DIR, 'index.html')));
+  app.get('/privacy', (req, res) => res.sendFile(path.join(LEGAL_DIR, 'privacy.html')));
+  app.get('/terms', (req, res) => res.sendFile(path.join(LEGAL_DIR, 'terms.html')));
+  app.get('/tiktok-callback', (req, res) => res.sendFile(path.join(LEGAL_DIR, 'tiktok-callback.html')));
+  app.get('pm3k-verify.txt', (req, res) => res.sendFile('pm3k-verify.txt'));
+
+
   app.use('/auth', authRoutes);
   app.use('/api', apiRoutes);
 

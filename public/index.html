@@ -245,22 +245,36 @@ async function loadConnections() {
         ${status[p.key] ? `<button class="secondary" data-disconnect="${p.key}">Disconnect</button>` : ''}
       </div>
       ${p.key === 'tiktok' ? `
-        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-          <div class="muted" style="font-size:12px;margin-bottom:6px">TikTok redirects to a Vercel page (not this app) with a code. Paste it here:</div>
-          <div style="display:flex;gap:6px">
-            <input type="text" id="tiktokCode" placeholder="Authorization code" style="flex:1;min-width:0" />
-            <button id="tiktokCompleteBtn" class="secondary">Complete</button>
+        <div style="margin-top:10px">
+          <button type="button" class="link-btn" id="tiktokManualToggle" style="background:none;border:none;color:var(--muted);font-size:12px;text-decoration:underline;cursor:pointer;padding:0">Trouble connecting? Paste a code manually</button>
+          <div id="tiktokManualBox" hidden style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            <div class="muted" style="font-size:12px;margin-bottom:6px">Only needed if the automatic redirect above didn't complete — paste the authorization code from TikTok's redirect URL here:</div>
+            <div style="display:flex;gap:6px">
+              <input type="text" id="tiktokCode" placeholder="Authorization code" style="flex:1;min-width:0" />
+              <button id="tiktokCompleteBtn" class="secondary">Complete</button>
+            </div>
           </div>
         </div>
       ` : ''}
     </div>
   `).join('');
 
+  // Manual code-entry is a fallback only — Connect above now completes automatically via
+  // /auth/tiktok/callback (see server/routes/auth.js), same as Instagram/YouTube. This stays
+  // hidden by default so it doesn't imply an extra required step.
+  const manualToggle = document.getElementById('tiktokManualToggle');
+  if (manualToggle) {
+    manualToggle.addEventListener('click', () => {
+      const box = document.getElementById('tiktokManualBox');
+      box.hidden = !box.hidden;
+    });
+  }
+
   const completeBtn = document.getElementById('tiktokCompleteBtn');
   if (completeBtn) {
     completeBtn.addEventListener('click', async () => {
       const code = document.getElementById('tiktokCode').value.trim();
-      if (!code) { toast('Paste the code from the TikTok relay page first', true); return; }
+      if (!code) { toast('Paste the authorization code first', true); return; }
       completeBtn.disabled = true;
       completeBtn.textContent = 'Connecting...';
       try {

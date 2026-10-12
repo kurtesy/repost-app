@@ -46,11 +46,18 @@ router.get('/youtube/callback', async (req, res) => {
 
 router.get('/tiktok', (req, res) => res.redirect(tiktok.authUrl()));
 
-// TikTok's Login Kit rejects "localhost" redirect URIs, so TT_REDIRECT_URI points at a small
-// static relay page hosted alongside the legal/ site on Vercel instead of this route. That page
-// shows the user the authorization code on screen; they paste it into the dashboard, which POSTs
-// it here to finish the token exchange. Kept as a GET route too in case TT_REDIRECT_URI is ever
-// pointed directly back at this server (e.g. once a custom domain is set up for it).
+// Primary TikTok OAuth callback — TT_REDIRECT_URI now points directly here (see .env.example),
+// exactly like Instagram/YouTube's own callbacks below. This route is public (no dashboard
+// session required — see server/middleware/auth.js's PUBLIC_PATHS) since TikTok's redirect hits
+// it directly, not the dashboard's own authenticated JS.
+//
+// Historical note: this app originally couldn't use a direct callback here because TikTok's
+// Login Kit rejects "localhost" redirect URIs, and at the time this relay lived on a completely
+// separate domain (repost-tool.vercel.app) with no way to hand the code back into this app
+// automatically — hence the old manual copy/paste flow (public/legal/tiktok-callback.html +
+// POST /tiktok/complete below). Now that this app is itself hosted on a real HTTPS domain, that
+// workaround is unnecessary; this route handles the redirect directly. The old relay page and
+// /tiktok/complete are kept as a fallback/escape hatch, not removed.
 router.get('/tiktok/callback', async (req, res) => {
   try {
     await tiktok.exchangeCodeForToken(req.query.code);

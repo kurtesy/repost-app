@@ -2,11 +2,13 @@
 //
 // Approach chosen (see the task's option (a)): wrap the EXISTING Express app as a single
 // catch-all function rather than rewriting ~15 routes into one-file-per-route Vercel functions.
-// vercel.json rewrites everything except Vercel's own static-file serving of public/ to this one
-// file. This preserves all existing route logic, middleware order (cookie-session -> auth gate ->
-// static -> /auth -> /api), and error handling with minimal rewriting, at the cost of every
-// request (even ones only hitting one route) cold-starting/warming this single function — an
-// acceptable tradeoff for an app of this size on the Hobby plan.
+// vercel.json rewrites LITERALLY EVERYTHING (including what would otherwise be Vercel's own
+// automatic static-file serving of public/) to this one file — a deliberate fix for an earlier
+// bug where static files bypassed requireAuth entirely. This preserves all existing route logic,
+// middleware order (cookie-session -> auth gate -> static -> /auth -> /api), and error handling
+// with minimal rewriting, at the cost of every request (even ones only hitting one route)
+// cold-starting/warming this single function — an acceptable tradeoff for an app of this size on
+// the Hobby plan.
 //
 // Vercel's Node.js runtime natively supports exporting an Express app instance as the default
 // handler from a file under /api — Express's own (req, res) => {...} signature is compatible
