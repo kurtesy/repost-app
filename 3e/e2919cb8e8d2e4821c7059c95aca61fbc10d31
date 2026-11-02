@@ -1,0 +1,21 @@
+SEO.md
+  s_4b2c8c8f737fcb::t_3fd4a1b278a4ab 1-119
+server/routes/api.js
+  s_4b2c8c8f737fcb::t_2ecf057be370ab 7,36-38,41-53,55-68,75-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "3ee2919cb8e8d2e4821c7059c95aca61fbc10d31",
+  "prompts": {},
+  "sessions": {
+    "s_4b2c8c8f737fcb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9ac94d10-adfd-490d-8595-49d3ffcb6f2c",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "kurtesy <np210291@gmail.com>"
+    }
+  }
+}
