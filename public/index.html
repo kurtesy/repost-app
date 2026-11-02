@@ -106,6 +106,22 @@
           <option value="IMAGE">Type: Image</option>
           <option value="CAROUSEL_ALBUM">Type: Carousel</option>
         </select>
+        <select id="mediaYearFilter" title="Filter by year posted"><option value="">Year: All</option></select>
+        <select id="mediaMonthFilter" title="Filter by month posted (any year, or combine with Year)">
+          <option value="">Month: All</option>
+          <option value="0">January</option>
+          <option value="1">February</option>
+          <option value="2">March</option>
+          <option value="3">April</option>
+          <option value="4">May</option>
+          <option value="5">June</option>
+          <option value="6">July</option>
+          <option value="7">August</option>
+          <option value="8">September</option>
+          <option value="9">October</option>
+          <option value="10">November</option>
+          <option value="11">December</option>
+        </select>
         <span class="sched-field">
           <label class="sched-label">From</label>
           <input type="date" id="mediaDateFrom" />
@@ -319,7 +335,19 @@ let logCache = [];
 async function loadMedia() {
   mediaCache = await api('/api/media');
   $('#mediaCountInline').textContent = `(${mediaCache.length})`;
+  populateYearFilter();
   renderMedia();
+}
+
+// Fill the Year dropdown from the years that actually have posts, keeping the current selection.
+function populateYearFilter() {
+  const sel = document.getElementById('mediaYearFilter');
+  if (!sel) return;
+  const keep = sel.value;
+  const years = [...new Set(mediaCache.filter(m => m.timestamp).map(m => new Date(m.timestamp).getFullYear()))]
+    .filter(Number.isFinite).sort((a, b) => b - a);
+  sel.innerHTML = '<option value="">Year: All</option>' + years.map(y => `<option value="${y}">${y}</option>`).join('');
+  if (years.map(String).includes(keep)) sel.value = keep;
 }
 
 function filteredMedia() {
@@ -327,12 +355,20 @@ function filteredMedia() {
   const postedFilter = document.getElementById('mediaPostedFilter')?.value || 'all';
   const fromVal = document.getElementById('mediaDateFrom')?.value || '';
   const toVal = document.getElementById('mediaDateTo')?.value || '';
+  const yearVal = document.getElementById('mediaYearFilter')?.value || '';
+  const monthVal = document.getElementById('mediaMonthFilter')?.value || '';
   const fromTs = fromVal ? new Date(fromVal + 'T00:00:00').getTime() : null;
   // Inclusive end of day for the "To" date.
   const toTs = toVal ? new Date(toVal + 'T23:59:59.999').getTime() : null;
 
   return mediaCache.filter(m => {
     if (typeFilter !== 'all' && m.media_type !== typeFilter) return false;
+    if (yearVal || monthVal) {
+      if (!m.timestamp) return false;
+      const d = new Date(m.timestamp);
+      if (yearVal && d.getFullYear() !== Number(yearVal)) return false;
+      if (monthVal && d.getMonth() !== Number(monthVal)) return false;
+    }
     if (fromTs || toTs) {
       const t = m.timestamp ? new Date(m.timestamp).getTime() : null;
       if (t === null) return false;
@@ -546,11 +582,15 @@ $('#syncYoutubeBtn').addEventListener('click', async () => {
 $('#mediaSort').addEventListener('change', renderMedia);
 $('#mediaTypeFilter').addEventListener('change', renderMedia);
 $('#mediaPostedFilter').addEventListener('change', renderMedia);
+$('#mediaYearFilter').addEventListener('change', renderMedia);
+$('#mediaMonthFilter').addEventListener('change', renderMedia);
 $('#mediaDateFrom').addEventListener('change', renderMedia);
 $('#mediaDateTo').addEventListener('change', renderMedia);
 $('#mediaDateClearBtn').addEventListener('click', () => {
   $('#mediaDateFrom').value = '';
   $('#mediaDateTo').value = '';
+  $('#mediaYearFilter').value = '';
+  $('#mediaMonthFilter').value = '';
   renderMedia();
 });
 

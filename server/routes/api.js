@@ -4,9 +4,7 @@ const instagram = require('../services/instagram');
 const wf = require('../services/workflow');
 const youtube = require('../services/youtube');
 const { safeErrorMessage } = require('../services/errors');
-const {
-  toYouTubeTitle, toYouTubeDescription, toYouTubeTags, toTikTokCaption
-} = require('../services/caption');
+const seo = require('../services/seo');
 
 // --- Instagram media ---
 router.get('/media', async (req, res) => {
@@ -35,16 +33,60 @@ router.get('/media/:id/preview', async (req, res) => {
     const all = await instagram.listStoredMedia();
     const media = all.find(m => m.id === req.params.id);
     if (!media) return res.status(404).json({ error: 'not found' });
+    // ?uploadAs=video previews the regular-video version; the default is Shorts.
+    const uploadAs = req.query.uploadAs === 'video' ? 'video' : 'shorts';
+    const fields = wf.youtubeFields(media, media.hashtags, uploadAs);
     res.json({
       youtube: {
-        title: toYouTubeTitle(media.caption),
-        description: toYouTubeDescription(media.caption, media.hashtags),
-        tags: toYouTubeTags(media.hashtags)
+        title: fields.title,
+        description: fields.description,
+        tags: fields.tags,
+        // Present when the SEO builder is on (YT_SEO_ENABLED is not "0").
+        seo: seo.isEnabled() ? {
+          primaryKeyword: fields.primaryKeyword,
+          hashtags: fields.hashtags,
+          categoryId: fields.categoryId,
+          titleLength: fields.title.length,
+          place: fields.place,
+          pinnedComment: fields.pinnedComment,
+          warnings: fields.warnings
+        } : null
       },
-      tiktok: {
-        caption: toTikTokCaption(media.caption, media.hashtags)
-      }
+      tiktok: (() => {
+        // ?durationSec=22 adds the watch-time warning; ?type=image previews the photo/carousel version (alt text).
+        const t = wf.tiktokFields(media, media.hashtags, {
+          isVideo: req.query.type !== 'image', durationSec: req.query.durationSec
+        });
+        return {
+          caption: t.caption,
+          seo: seo.isTikTokEnabled() ? {
+            primaryKeyword: t.primaryKeyword, hashtags: t.hashtags, captionLength: t.caption.length,
+            onScreenText: t.onScreenText, onScreenTextWindowSec: t.onScreenTextWindowSec, spokenHook: t.spokenHook,
+            coverText: t.coverText, altText: t.altText, cta: t.cta, place: t.place, onNiche: t.onNiche, warnings: t.warnings
+          } : null
+        };
+      })()
     });
+  } catch (err) {
+    res.status(500).json({ error: safeErrorMessage(err) });
+  }
+});
+
+// Re-optimise a video that is already on YouTube (videos.update) from its source Instagram post.
+// Body: { mediaId, uploadAs?: 'shorts'|'video', primaryKeyword?, chapters?: [{t:'0:00',label:'Intro'}, ...] }
+// Set "dryRun": true to return the generated fields without calling YouTube.
+router.post('/youtube/videos/:videoId/seo', async (req, res) => {
+  try {
+    const { mediaId, uploadAs, primaryKeyword, chapters, dryRun } = req.body || {};
+    if (!mediaId) return res.status(400).json({ error: 'mediaId (the source Instagram post) is required' });
+    const media = (await instagram.listStoredMedia()).find(m => m.id === mediaId);
+    if (!media) return res.status(404).json({ error: 'Instagram media not found: ' + mediaId });
+    const fields = seo.buildYouTubeSeo(media.caption, media.hashtags, {
+      asShorts: uploadAs !== 'video', permalink: media.permalink, primaryKeyword, chapters
+    });
+    if (dryRun) return res.json({ applied: false, fields });
+    await youtube.updateVideoSeo(req.params.videoId, fields);
+    res.json({ applied: true, fields });
   } catch (err) {
     res.status(500).json({ error: safeErrorMessage(err) });
   }

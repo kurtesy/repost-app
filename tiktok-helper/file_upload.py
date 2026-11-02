@@ -34,6 +34,10 @@ import sys
 import time
 from typing import Any, Dict, Optional
 import requests
+import dotenv
+
+dotenv.load_dotenv()
+
 
 PM3K_API_BASE = os.getenv("PM3K_API_BASE", "https://api.pm3k.org/v1")
 
@@ -48,9 +52,9 @@ def upload_to_vercel_blob(
     Uploads a local file to Vercel Blob storage using the Vercel Blob API.
     Returns the public URL (or custom domain mapped URL) for the uploaded file.
     """
-    token = token or os.getenv("BLOB_READ_WRITE_TOKEN")
+    token = token or os.getenv("BLOBBY_READ_WRITE_TOKEN")
     if not token:
-        raise ValueError("BLOB_READ_WRITE_TOKEN is required for Vercel Blob uploads.")
+        raise ValueError("BLOBBY_READ_WRITE_TOKEN is required for Vercel Blob uploads.")
 
     filename = os.path.basename(file_path)
     blob_pathname = posixpath.join(pathname_prefix, filename)
@@ -210,7 +214,7 @@ def main():
         default=os.getenv("BLOB_CUSTOM_DOMAIN"),
         help="Base domain to use for verified URL (e.g. https://repost-app-ytdlp-helper.vercel.app)",
     )
-    parser.add_argument("--blob-token", default=os.getenv("BLOB_READ_WRITE_TOKEN"), help="Vercel Blob token")
+    parser.add_argument("--blob-token", default=os.getenv("BLOBBY_READ_WRITE_TOKEN"), help="Vercel Blob token")
     parser.add_argument("--caption", "-c", required=True, help="Video caption/description")
     parser.add_argument(
         "--privacy",

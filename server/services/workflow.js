@@ -7,6 +7,38 @@ const {
   toYouTubeTitle, toYouTubeDescription, toYouTubeTags, toTikTokCaption
 } = require('./caption');
 const { safeErrorMessage } = require('./errors');
+const seo = require('./seo');
+
+/**
+ * Title, description, tags and category for a YouTube upload. Uses the SEO builder (keyword-first
+ * title, structured description, hashtags, tag variants) unless YT_SEO_ENABLED=0, in which case the
+ * original caption-based fields are returned unchanged.
+ */
+function youtubeFields(media, hashtags, uploadAs) {
+  const asShorts = uploadAs !== 'video';
+  if (!seo.isEnabled()) {
+    return {
+      title: toYouTubeTitle(media.caption),
+      description: toYouTubeDescription(media.caption, hashtags, asShorts),
+      tags: toYouTubeTags(hashtags),
+      categoryId: '22'
+    };
+  }
+  const out = seo.buildYouTubeSeo(media.caption, hashtags, { asShorts, permalink: media.permalink });
+  for (const w of out.warnings) console.warn(`[seo] ${media.id}: ${w}`);
+  return out;
+}
+
+/**
+ * Caption (and advice) for a TikTok post. Uses the TikTok SEO builder unless TT_SEO_ENABLED=0,
+ * which restores the original caption-based text.
+ */
+function tiktokFields(media, hashtags, { isVideo = true, durationSec } = {}) {
+  if (!seo.isTikTokEnabled()) return { caption: toTikTokCaption(media.caption, hashtags), warnings: [], onNiche: true };
+  const out = seo.buildTikTokSeo(media.caption, hashtags, { isVideo, durationSec });
+  for (const w of out.warnings) console.warn(`[seo:tiktok] ${media.id}: ${w}`);
+  return out;
+}
 
 /**
  * Best-effort delete of a temp file downloaded by instagram.ensureLocalMedia(). Since that
@@ -112,6 +144,15 @@ async function repostOne({ workflowId, igMediaId, target, privacy, uploadAs = 's
     return { skipped: true, reason: 'already posted to ' + target };
   }
 
+  // One niche per account: with TIKTOK_NICHE_STRICT=1, off-niche posts are not sent to TikTok.
+  if (target === 'tiktok' && process.env.TIKTOK_NICHE_STRICT === '1' && !seo.isOnNiche(media.caption, hashtags)) {
+    await logAttempt({
+      workflow_id: workflowId, ig_media_id: igMediaId, target,
+      status: 'skipped_off_niche', remote_id: null, remote_url: null, error: null, created_at: Date.now()
+    });
+    return { skipped: true, reason: 'outside the account niche (TIKTOK_NICHE_STRICT=1)' };
+  }
+
   // Reels have no media_url via the Graph API (confirmed, permanent) — ensureLocalMedia()
   // handles this by falling back to yt-dlp against the post's public permalink, so no need to
   // skip here; a Reel simply flows through the normal video download+upload path below, and
@@ -135,8 +176,9 @@ async function repostOne({ workflowId, igMediaId, target, privacy, uploadAs = 's
   // check the actual YouTube channel for a video that looks like it's already there —
   // catches anything uploaded manually before this app was ever used.
   if (target === 'youtube' && !skipDuplicateCheck) {
-    const candidateTitle = toYouTubeTitle(media.caption);
-    const dupeCheck = await youtube.findLikelyDuplicate(candidateTitle);
+    // Plain caption title plus the SEO titles, so a video already uploaded with an optimised title
+    // is still recognised as a duplicate.
+    const dupeCheck = await youtube.findLikelyDuplicate(seo.titleCandidates(media.caption, hashtags));
     if (dupeCheck.isDuplicate) {
       await logAttempt({
         workflow_id: workflowId, ig_media_id: igMediaId, target,
@@ -153,11 +195,13 @@ async function repostOne({ workflowId, igMediaId, target, privacy, uploadAs = 's
     if (target === 'youtube') {
       const filePath = await instagram.ensureLocalMedia(igMediaId);
       try {
+        const fields = youtubeFields(media, hashtags, uploadAs);
         result = await youtube.uploadShort({
           filePath,
-          title: toYouTubeTitle(media.caption),
-          description: toYouTubeDescription(media.caption, hashtags, uploadAs !== 'video'),
-          tags: toYouTubeTags(hashtags),
+          title: fields.title,
+          description: fields.description,
+          tags: fields.tags,
+          categoryId: fields.categoryId,
           privacyStatus: privacy || 'public',
           asShorts: uploadAs !== 'video'
         });
@@ -175,7 +219,7 @@ async function repostOne({ workflowId, igMediaId, target, privacy, uploadAs = 's
       try {
         result = await tiktok.postVideo({
           filePath,
-          caption: toTikTokCaption(media.caption, hashtags),
+          caption: tiktokFields(media, hashtags, { isVideo: true }).caption,
           privacyLevel: privacy || 'PUBLIC_TO_EVERYONE'
         });
       } finally {
@@ -192,7 +236,7 @@ async function repostOne({ workflowId, igMediaId, target, privacy, uploadAs = 's
       const freshImageUrl = await instagram.getFreshMediaUrl(igMediaId);
       result = await tiktok.postPhoto({
         imageUrl: freshImageUrl,
-        caption: toTikTokCaption(media.caption, hashtags),
+        caption: tiktokFields(media, hashtags, { isVideo: false }).caption,
         privacyLevel: privacy || 'PUBLIC_TO_EVERYONE'
       });
       await logAttempt({
@@ -267,5 +311,5 @@ async function runWorkflow(workflowId, { mediaIds = null } = {}) {
 
 module.exports = {
   createWorkflow, getWorkflow, listWorkflows, updateWorkflow, deleteWorkflow,
-  runWorkflow, repostOne, getLog
+  runWorkflow, repostOne, getLog, youtubeFields, tiktokFields
 };

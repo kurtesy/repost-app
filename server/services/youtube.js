@@ -3,6 +3,7 @@ const { google } = require('googleapis');
 const { getToken, saveToken } = require('../db/tokens');
 const db = require('../db');
 const { toYouTubeTitle } = require('./caption');
+const { titleCandidates } = require('./seo');
 
 function oauthClient() {
   return new google.auth.OAuth2(
@@ -148,7 +149,13 @@ function authErrorMessage(err) {
  * to know which URL format to hand back for the activity log.
  * privacyStatus: 'public' | 'unlisted' | 'private'
  */
-async function uploadShort({ filePath, title, description, tags = [], privacyStatus = 'public', asShorts = true }) {
+// Language written to snippet.defaultLanguage (title/description) and snippet.defaultAudioLanguage (spoken audio).
+// English by default; override with YT_VIDEO_LANGUAGE (an ISO 639-1 / BCP-47 code such as "en" or "en-GB").
+function videoLanguage() {
+  return process.env.YT_VIDEO_LANGUAGE || 'en';
+}
+
+async function uploadShort({ filePath, title, description, tags = [], privacyStatus = 'public', asShorts = true, categoryId = '22' }) {
   const auth = await getAuthedClient();
   const youtube = google.youtube({ version: 'v3', auth });
 
@@ -157,7 +164,7 @@ async function uploadShort({ filePath, title, description, tags = [], privacySta
     res = await youtube.videos.insert({
       part: ['snippet', 'status'],
       requestBody: {
-        snippet: { title, description, tags, categoryId: '22' },
+        snippet: { title, description, tags, categoryId, defaultLanguage: videoLanguage(), defaultAudioLanguage: videoLanguage() },
         status: { privacyStatus, selfDeclaredMadeForKids: false }
       },
       media: { body: fs.createReadStream(filePath) }
@@ -172,6 +179,52 @@ async function uploadShort({ filePath, title, description, tags = [], privacySta
     ? `https://youtube.com/shorts/${videoId}`
     : `https://youtube.com/watch?v=${videoId}`;
   return { id: videoId, url };
+}
+
+/**
+ * Re-optimise an already-uploaded video's title, description and tags (videos.update, 50 quota
+ * units). videos.update REPLACES the snippet, so the video's current snippet is read first and only
+ * the SEO fields are overwritten; categoryId, defaultLanguage and the rest are kept. categoryId can
+ * be passed to move the video (for example to 19, Travel & Events).
+ */
+async function updateVideoSeo(videoId, { title, description, tags, categoryId }) {
+  const auth = await getAuthedClient();
+  const youtube = google.youtube({ version: 'v3', auth });
+  try {
+    const { data } = await youtube.videos.list({ part: ['snippet'], id: [videoId] });
+    const current = data.items?.[0]?.snippet;
+    if (!current) throw new Error(`YouTube video not found on the connected channel: ${videoId}`);
+    const snippet = {
+      ...current, title, description, tags, categoryId: categoryId || current.categoryId,
+      defaultLanguage: videoLanguage(), defaultAudioLanguage: videoLanguage()
+    };
+    await youtube.videos.update({ part: ['snippet'], requestBody: { id: videoId, snippet } });
+    return { id: videoId, title, tags };
+  } catch (err) {
+    if (isAuthError(err)) throw new Error(authErrorMessage(err));
+    throw err;
+  }
+}
+
+/**
+ * Upload a caption track (SRT or WebVTT file) for a video via captions.insert (400 quota units).
+ * Captions are indexed for search, so an accurate track helps; correct auto-generated errors in
+ * YouTube Studio or supply your own file here.
+ */
+async function uploadCaptions(videoId, filePath, { language = 'en', name = '' } = {}) {
+  const auth = await getAuthedClient();
+  const youtube = google.youtube({ version: 'v3', auth });
+  try {
+    const res = await youtube.captions.insert({
+      part: ['snippet'],
+      requestBody: { snippet: { videoId, language, name, isDraft: false } },
+      media: { body: fs.createReadStream(filePath) }
+    });
+    return { id: res.data.id, language };
+  } catch (err) {
+    if (isAuthError(err)) throw new Error(authErrorMessage(err));
+    throw err;
+  }
 }
 
 // --- Existing-channel-history check (catches videos uploaded before this app existed) ---
@@ -257,12 +310,15 @@ function similarity(a, b) {
  */
 async function findLikelyDuplicate(candidateTitle, { threshold = 0.85 } = {}) {
   const uploads = await fetchChannelUploads();
-  const normCandidate = normalizeTitle(candidateTitle);
-  if (!normCandidate) return { isDuplicate: false, match: null };
+  // Accepts one title or a list (the plain caption title plus the SEO titles this app may have
+  // published), and keeps the best score across them.
+  const candidates = (Array.isArray(candidateTitle) ? candidateTitle : [candidateTitle]).map(normalizeTitle).filter(Boolean);
+  if (!candidates.length) return { isDuplicate: false, match: null };
 
   let best = null;
   for (const video of uploads) {
-    const score = similarity(normCandidate, normalizeTitle(video.title));
+    const vt = normalizeTitle(video.title);
+    const score = Math.max(...candidates.map((c) => similarity(c, vt)));
     if (!best || score > best.score) best = { ...video, score };
   }
 
@@ -300,7 +356,7 @@ async function syncChannelUploads({ threshold = 0.85 } = {}) {
   const uploads = await fetchChannelUploads({ forceRefresh: true });
 
   const rows = await db.prepare(
-    `SELECT id, caption FROM ig_media ORDER BY timestamp DESC`
+    `SELECT id, caption, hashtags FROM ig_media ORDER BY timestamp DESC`
   ).all();
 
   const synced = [];
@@ -311,13 +367,17 @@ async function syncChannelUploads({ threshold = 0.85 } = {}) {
     ).get(row.id);
     if (existing) continue;
 
-    const candidateTitle = toYouTubeTitle(row.caption);
-    const normCandidate = normalizeTitle(candidateTitle);
-    if (!normCandidate) continue;
+    // Match against the plain caption title and the SEO titles this app generates, so videos
+    // uploaded with an optimised title are still recognised as already posted.
+    let hashtags = [];
+    try { hashtags = JSON.parse(row.hashtags || '[]'); } catch (_) { /* leave empty */ }
+    const candidates = [toYouTubeTitle(row.caption), ...titleCandidates(row.caption, hashtags)].map(normalizeTitle).filter(Boolean);
+    if (!candidates.length) continue;
 
     let best = null;
     for (const video of uploads) {
-      const score = similarity(normCandidate, normalizeTitle(video.title));
+      const vt = normalizeTitle(video.title);
+      const score = Math.max(...candidates.map((c) => similarity(c, vt)));
       if (!best || score > best.score) best = { ...video, score };
     }
     if (!best || best.score < threshold) continue;
@@ -350,6 +410,8 @@ module.exports = {
   authUrl,
   exchangeCodeForToken,
   uploadShort,
+  updateVideoSeo,
+  uploadCaptions,
   fetchChannelUploads,
   findLikelyDuplicate,
   syncChannelUploads,

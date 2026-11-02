@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const PUBLIC_PATHS = new Set([
   '/auth/login',
   '/login.html',
+  '/api/cron/tick',
   // Legal pages + TikTok OAuth relay + TikTok's domain-verification file — formerly hosted on a
   // completely separate Vercel project ("repost-tool", the legal/ folder) with no auth of its
   // own; folded into this app's own deployment so there's only one project to manage, but they

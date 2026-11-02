@@ -3,5 +3,7 @@ data/
 certs/
 node_modules/
 .venv/
+mediakit-classic-images
+mediakit-images
 
 .DS_store

@@ -44,8 +44,6 @@ router.get('/youtube/callback', async (req, res) => {
   }
 });
 
-router.get('/tiktok', (req, res) => res.redirect(tiktok.authUrl()));
-
 // Primary TikTok OAuth callback — TT_REDIRECT_URI now points directly here (see .env.example),
 // exactly like Instagram/YouTube's own callbacks below. This route is public (no dashboard
 // session required — see server/middleware/auth.js's PUBLIC_PATHS) since TikTok's redirect hits
